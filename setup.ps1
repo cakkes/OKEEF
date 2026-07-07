@@ -87,11 +87,11 @@ if (-not (Test-Path $envPath)) {
     $adminName = Read-Host "Admin display name"
     Add-Type -AssemblyName System.Web
     $generated = [System.Web.Security.Membership]::GeneratePassword(20, 4)
-    @"
-WEBUI_ADMIN_EMAIL=$adminEmail
-WEBUI_ADMIN_PASSWORD=$generated
-WEBUI_ADMIN_NAME=$adminName
-"@ | Set-Content -Path $envPath -Encoding utf8
+    $envContent = "WEBUI_ADMIN_EMAIL=$adminEmail`nWEBUI_ADMIN_PASSWORD=$generated`nWEBUI_ADMIN_NAME=$adminName`n"
+    # Windows PowerShell 5.1's `Set-Content -Encoding utf8` writes a BOM, which
+    # silently corrupts the first key's name for python-dotenv/os.environ readers.
+    # Write plain BOM-free UTF-8 instead.
+    [System.IO.File]::WriteAllText($envPath, $envContent, [System.Text.UTF8Encoding]::new($false))
     Write-Output "Generated a random admin password and saved it to .env (gitignored, never printed)."
     Write-Output "Run 'Get-Content .env' yourself later if you need to see it."
 }
@@ -105,12 +105,15 @@ if (-not (Test-Path "$webuiVenv\Scripts\open-webui.exe")) {
     & "$webuiVenv\Scripts\pip.exe" install open-webui --quiet
 }
 
-# 7. Open WebUI first-run config (admin account, embeddings, Knowledge collection) --
+# 7. Open WebUI first-run config (embeddings, chunking, Knowledge collection) --
+# Sync auth uses the admin account's own email/password (session sign-in), not a
+# generated API key -- API keys were found not to reliably survive an Open WebUI
+# restart in the installed version, so there's nothing to generate/store here.
 $envMap = @{}
 foreach ($line in Get-Content $envPath) {
     if ($line -match '^([^=]+)=(.*)$') { $envMap[$matches[1]] = $matches[2] }
 }
-$needsOpenWebUiConfig = -not $envMap.ContainsKey("OPENWEBUI_API_KEY") -or -not $envMap.ContainsKey("OPENWEBUI_KNOWLEDGE_ID")
+$needsOpenWebUiConfig = -not $envMap.ContainsKey("OPENWEBUI_KNOWLEDGE_ID")
 
 if ($needsOpenWebUiConfig) {
     Write-Output "Starting Open WebUI once to complete first-run setup..."
@@ -141,15 +144,6 @@ if ($needsOpenWebUiConfig) {
     $auth = Invoke-RestMethod -Uri "http://localhost:8080/api/v1/auths/signin" -Method Post -Body $signinBody -ContentType "application/json"
     $headers = @{ Authorization = "Bearer $($auth.token)" }
 
-    if (-not $envMap.ContainsKey("OPENWEBUI_API_KEY")) {
-        $adminConfig = Invoke-RestMethod -Uri "http://localhost:8080/api/v1/auths/admin/config" -Headers $headers -Method Get
-        $adminConfig.ENABLE_API_KEYS = $true
-        Invoke-RestMethod -Uri "http://localhost:8080/api/v1/auths/admin/config" -Headers $headers -Method Post `
-            -Body ($adminConfig | ConvertTo-Json -Depth 5) -ContentType "application/json" | Out-Null
-        $apiKeyResp = Invoke-RestMethod -Uri "http://localhost:8080/api/v1/auths/api_key" -Headers $headers -Method Post
-        Add-Content -Path $envPath -Value "OPENWEBUI_API_KEY=$($apiKeyResp.api_key)" -Encoding utf8
-    }
-
     $embBody = @{
         RAG_EMBEDDING_ENGINE     = "ollama"
         RAG_EMBEDDING_MODEL      = "nomic-embed-text"
@@ -170,7 +164,7 @@ if ($needsOpenWebUiConfig) {
         $kBody = @{ name = "OKEEF Bundle"; description = "Personal OKF/PARA knowledgebase ($bundleRoot)" } | ConvertTo-Json
         $knowledge = Invoke-RestMethod -Uri "http://localhost:8080/api/v1/knowledge/create" -Headers $headers -Method Post `
             -Body $kBody -ContentType "application/json"
-        Add-Content -Path $envPath -Value "OPENWEBUI_KNOWLEDGE_ID=$($knowledge.id)" -Encoding utf8
+        Add-Content -Path $envPath -Value "OPENWEBUI_KNOWLEDGE_ID=$($knowledge.id)" -Encoding ascii
     }
 
     Write-Output "Open WebUI first-run setup complete. Stopping the temporary instance."
@@ -181,9 +175,13 @@ if ($needsOpenWebUiConfig) {
 
 # 8. Backfill any existing content into Open WebUI --------------------------
 Write-Output "Backfilling existing content into Open WebUI..."
-& "$webuiVenv\Scripts\open-webui.exe" --version | Out-Null  # sanity check only; server not started here
 try {
     foreach ($kv in $envMap.GetEnumerator()) { [System.Environment]::SetEnvironmentVariable($kv.Key, $kv.Value, "Process") }
+    # Set independently of step 7 -- step 7 is skipped entirely once .env already has
+    # OPENWEBUI_KNOWLEDGE_ID, so these env vars can't be assumed set.
+    $env:DATA_DIR = Join-Path $bundleRoot "data\openwebui"
+    if (-not $env:OLLAMA_BASE_URL) { $env:OLLAMA_BASE_URL = "http://localhost:11434" }
+    $env:ENABLE_SIGNUP = "false"
     $proc = Start-Process -FilePath "$webuiVenv\Scripts\open-webui.exe" -ArgumentList "serve" -WorkingDirectory $bundleRoot `
         -RedirectStandardOutput (Join-Path $bundleRoot "logs\openwebui-stdout.log") `
         -RedirectStandardError (Join-Path $bundleRoot "logs\openwebui-stderr.log") -PassThru

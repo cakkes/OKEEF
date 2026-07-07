@@ -25,12 +25,16 @@ class Config:
     chunk_overlap: int
     openwebui_base_url: str
     openwebui_knowledge_id: str
-    openwebui_api_key: str
+    openwebui_admin_email: str
+    openwebui_admin_password: str
 
 
 def load_config(bundle_root: Path | None = None) -> Config:
     root = bundle_root or Path(os.environ.get("OKEEF_ROOT", str(_DEFAULT_ROOT)))
-    load_dotenv(root / ".env")
+    # utf-8-sig tolerates a leading BOM (harmless if absent) -- PowerShell's
+    # `Set-Content -Encoding utf8` writes one by default, which otherwise silently
+    # corrupts the first key's name and makes it invisible to os.environ.get().
+    load_dotenv(root / ".env", encoding="utf-8-sig")
 
     cfg_path = root / "config" / "config.yaml"
     raw = yaml.safe_load(cfg_path.read_text(encoding="utf-8")) if cfg_path.exists() else {}
@@ -58,7 +62,12 @@ def load_config(bundle_root: Path | None = None) -> Config:
         openwebui_knowledge_id=os.environ.get(
             "OPENWEBUI_KNOWLEDGE_ID", openwebui.get("knowledge_id", "")
         ),
-        # Also per-machine, and a real credential (unlike knowledge_id) -- .env only,
-        # never config.yaml.
-        openwebui_api_key=os.environ.get("OPENWEBUI_API_KEY", ""),
+        # Sync signs in with the admin account itself (session JWT, ~4 week expiry by
+        # Open WebUI's default) rather than using a generated API key -- API keys were
+        # found not to reliably survive an Open WebUI restart in the installed version
+        # (ENABLE_API_KEYS and/or the stored key itself resets), while sign-in is
+        # simple and robust since these are the same credentials used to headlessly
+        # bootstrap the admin account in the first place.
+        openwebui_admin_email=os.environ.get("WEBUI_ADMIN_EMAIL", ""),
+        openwebui_admin_password=os.environ.get("WEBUI_ADMIN_PASSWORD", ""),
     )

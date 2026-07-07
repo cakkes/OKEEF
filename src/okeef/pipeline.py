@@ -77,7 +77,7 @@ def _sync_to_openwebui(concept_path: Path, config: Config) -> None:
     # Sync failure shouldn't break ingestion -- the commit already succeeded and is
     # the source of truth. A failed/skipped sync can be caught up later via a bulk
     # resync rather than blocking the pipeline on Open WebUI being configured/up.
-    if not config.openwebui_api_key or not config.openwebui_knowledge_id:
+    if not config.openwebui_admin_email or not config.openwebui_knowledge_id:
         return
     try:
         openwebui_sync.sync_file(concept_path, config)
