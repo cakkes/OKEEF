@@ -174,27 +174,34 @@ if ($needsOpenWebUiConfig) {
 }
 
 # 8. Backfill any existing content into Open WebUI --------------------------
-Write-Output "Backfilling existing content into Open WebUI..."
-try {
-    foreach ($kv in $envMap.GetEnumerator()) { [System.Environment]::SetEnvironmentVariable($kv.Key, $kv.Value, "Process") }
-    # Set independently of step 7 -- step 7 is skipped entirely once .env already has
-    # OPENWEBUI_KNOWLEDGE_ID, so these env vars can't be assumed set.
-    $env:DATA_DIR = Join-Path $bundleRoot "data\openwebui"
-    if (-not $env:OLLAMA_BASE_URL) { $env:OLLAMA_BASE_URL = "http://localhost:11434" }
-    $env:ENABLE_SIGNUP = "false"
-    $proc = Start-Process -FilePath "$webuiVenv\Scripts\open-webui.exe" -ArgumentList "serve" -WorkingDirectory $bundleRoot `
-        -RedirectStandardOutput (Join-Path $bundleRoot "logs\openwebui-stdout.log") `
-        -RedirectStandardError (Join-Path $bundleRoot "logs\openwebui-stderr.log") -PassThru
-    for ($i = 0; $i -lt 30; $i++) {
-        Start-Sleep -Seconds 2
-        try {
-            if ((Invoke-WebRequest -Uri "http://localhost:8080/health" -UseBasicParsing -TimeoutSec 3).StatusCode -eq 200) { break }
-        } catch {}
+# Only on first-run (right after creating a fresh Knowledge collection): resync
+# isn't safe to blindly re-run against a collection that already has content --
+# Open WebUI correctly rejects re-uploading unchanged content as a duplicate. On
+# later setup.ps1 runs, this step is a no-op; run 'okeef resync' by hand if you
+# ever need to catch up a collection (e.g. after recreating one, see README).
+if ($needsOpenWebUiConfig) {
+    Write-Output "Backfilling existing content into Open WebUI..."
+    try {
+        foreach ($kv in $envMap.GetEnumerator()) { [System.Environment]::SetEnvironmentVariable($kv.Key, $kv.Value, "Process") }
+        $env:DATA_DIR = Join-Path $bundleRoot "data\openwebui"
+        if (-not $env:OLLAMA_BASE_URL) { $env:OLLAMA_BASE_URL = "http://localhost:11434" }
+        $env:ENABLE_SIGNUP = "false"
+        $proc = Start-Process -FilePath "$webuiVenv\Scripts\open-webui.exe" -ArgumentList "serve" -WorkingDirectory $bundleRoot `
+            -RedirectStandardOutput (Join-Path $bundleRoot "logs\openwebui-stdout.log") `
+            -RedirectStandardError (Join-Path $bundleRoot "logs\openwebui-stderr.log") -PassThru
+        for ($i = 0; $i -lt 30; $i++) {
+            Start-Sleep -Seconds 2
+            try {
+                if ((Invoke-WebRequest -Uri "http://localhost:8080/health" -UseBasicParsing -TimeoutSec 3).StatusCode -eq 200) { break }
+            } catch {}
+        }
+        & "$venv\Scripts\okeef.exe" resync
+        Stop-Process -Id $proc.Id -Force -ErrorAction SilentlyContinue
+    } catch {
+        Write-Output "Resync skipped or failed ($($_.Exception.Message)) -- run 'okeef resync' manually later."
     }
-    & "$venv\Scripts\okeef.exe" resync
-    Stop-Process -Id $proc.Id -Force -ErrorAction SilentlyContinue
-} catch {
-    Write-Output "Resync skipped or failed ($($_.Exception.Message)) -- run 'okeef resync' manually later."
+} else {
+    Write-Output "Skipping backfill (Knowledge collection already configured) -- run 'okeef resync' manually if you need to catch it up."
 }
 
 # 9. Register the watcher as a Scheduled Task --------------------------------
