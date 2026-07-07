@@ -100,7 +100,11 @@ def _process(path: Path, config: Config) -> None:
         return
     try:
         result = pipeline.process_file(path, config)
-        logger.info("Ingested %s -> %s", path.name, result.relative_to(config.bundle_root))
+        rel = result.relative_to(config.bundle_root)
+        if config.auto_commit:
+            logger.info("Ingested %s -> %s", path.name, rel)
+        else:
+            logger.info("Staged %s for review -> %s", path.name, rel)
     except extract.ExtractionError as exc:
         _quarantine(path, config, str(exc))
     except Exception as exc:  # noqa: BLE001 -- any pipeline failure quarantines, never crashes the watcher

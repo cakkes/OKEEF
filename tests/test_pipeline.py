@@ -1,70 +1,9 @@
 from pathlib import Path
 
 import frontmatter
-import pytest
 
 from okeef import pipeline
 from okeef.config import Config
-from okeef.models import Classification
-
-
-@pytest.fixture(autouse=True)
-def stub_classification(monkeypatch):
-    """Pipeline tests exercise extract/write/index/commit, not the real Ollama call
-    (that's covered separately in test_classify.py, which is slow and needs Ollama
-    running). Replicates the Phase 1/2 deterministic stub's behavior exactly, so
-    these tests stay fast and deterministic regardless of classify.py's internals.
-    """
-
-    def _fake_classify(path: Path, text: str, config: Config) -> Classification:
-        title = path.stem.replace("_", " ").replace("-", " ").strip().title() or "Untitled"
-        first_line = next((line.strip() for line in text.splitlines() if line.strip()), "")
-        return Classification(
-            para_bucket="Resources",
-            okf_type="note",
-            title=title,
-            description=first_line[:200] or "No description available.",
-            summary=text.strip()[:400] or "No summary available.",
-            tags=["unclassified"],
-            folder_slug="unsorted",
-            confidence=0.0,
-        )
-
-    monkeypatch.setattr("okeef.classify.classify", _fake_classify)
-
-
-@pytest.fixture
-def bundle_root(tmp_path: Path) -> Path:
-    root = tmp_path / "bundle"
-    for bucket in ["Projects", "Areas", "Resources", "Archives"]:
-        (root / bucket).mkdir(parents=True)
-        (root / bucket / "index.md").write_text(
-            f"# {bucket}\n\n<!-- OKEEF:AUTO-INDEX:START -->\n<!-- OKEEF:AUTO-INDEX:END -->\n",
-            encoding="utf-8",
-        )
-    (root / "_inbox").mkdir()
-    root_index = (
-        "---\nokf_version: \"0.1\"\ntitle: Test Bundle\n---\n\n# Test Bundle\n"
-    )
-    (root / "index.md").write_text(root_index, encoding="utf-8")
-    (root / "log.md").write_text("# Log\n", encoding="utf-8")
-    return root
-
-
-@pytest.fixture
-def config(bundle_root: Path) -> Config:
-    return Config(
-        bundle_root=bundle_root,
-        auto_commit=False,  # keep the test independent of git
-        para_buckets=["Projects", "Areas", "Resources", "Archives"],
-        classify_model="stub",
-        embed_model="stub",
-        ollama_host="http://localhost:11434",
-        chunk_size=800,
-        chunk_overlap=150,
-        openwebui_base_url="http://localhost:8080",
-        openwebui_knowledge_id="",
-    )
 
 
 def test_process_file_writes_conformant_okf_doc(bundle_root: Path, config: Config) -> None:
@@ -101,6 +40,26 @@ def test_process_file_updates_indexes_and_log(bundle_root: Path, config: Config)
     log_content = (bundle_root / "log.md").read_text(encoding="utf-8")
     assert "Note" in log_content
     assert "Resources/note" in log_content
+
+
+def test_process_file_commits_to_git(bundle_root: Path, config: Config) -> None:
+    import subprocess
+
+    from okeef.git_ops import _git_executable
+
+    source = bundle_root / "_inbox" / "committed-note.txt"
+    source.write_text("Content to be committed.", encoding="utf-8")
+
+    pipeline.process_file(source, config)
+
+    git = _git_executable()
+    log = subprocess.run(
+        [git, "-C", str(bundle_root), "log", "--oneline"],
+        capture_output=True,
+        text=True,
+        check=True,
+    )
+    assert "ingest(resources): Committed Note" in log.stdout
 
 
 def test_duplicate_titles_get_unique_filenames(bundle_root: Path, config: Config) -> None:
