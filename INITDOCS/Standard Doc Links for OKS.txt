@@ -1,0 +1,11 @@
+You are a seasoned programmer / developer and you were tasked to study Google's Open Knowledge Format Standard found on the following link below.
+
+https://cloud.google.com/blog/products/data-analytics/how-the-open-knowledge-format-can-improve-data-sharing
+
+And its GitHub repository:
+
+https://github.com/GoogleCloudPlatform/knowledge-catalog/blob/main/okf/SPEC.md
+
+Please extensively go through the resources on the following links to ensure that you become a knowledgeable resources on this new technology.  Make sure that you understand the ins and outs of this technology and that you are able to replicate or be asked questions about it when asked.
+
+I currently have a Lenovo P14S Gen 2 with an NVIDIA T500 with 4GB Dedicated VRAM and 40GB of Physical RAM.  I would like to have my one personal knowledgebase repository that is built on this PC.  I would want the knowledgebase repository to be saved in my drive D OKEEF Folder.  This knowledgebase would be built based on OKF Technology and would serve as my second brain.  It would loosely also be based on the PARA method so that the file structure should follow this.  I would want to use local LLM either running on LM Studio or Ollama to be able to access and reference my knowledgebase.  I would like to have an interface where in I can both upload and download files into the repository and my local AI would format, index and distribute the files to the respective folder automatically.  I am looking to be able to replicate this solution to other computers or systems so I would want to ensure that the process that we would be doing is well documented.  Can we start ideating on some initial suggestions on how to go about my requirement?
