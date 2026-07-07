@@ -1,0 +1,21 @@
+# OKEEF pipeline configuration. Machine-specific overrides go in .env (see .env.example),
+# not here — this file is version-controlled and shared across machines.
+
+auto_commit: true
+
+para_buckets:
+  - Projects
+  - Areas
+  - Resources
+  - Archives
+
+classify_model: "qwen2.5:3b-instruct"
+embed_model: "nomic-embed-text"
+ollama_host: "http://localhost:11434"
+
+chunk_size: 800
+chunk_overlap: 150
+
+openwebui:
+  base_url: "http://localhost:8080"
+  knowledge_id: ""
