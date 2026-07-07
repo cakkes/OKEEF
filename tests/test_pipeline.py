@@ -5,6 +5,32 @@ import pytest
 
 from okeef import pipeline
 from okeef.config import Config
+from okeef.models import Classification
+
+
+@pytest.fixture(autouse=True)
+def stub_classification(monkeypatch):
+    """Pipeline tests exercise extract/write/index/commit, not the real Ollama call
+    (that's covered separately in test_classify.py, which is slow and needs Ollama
+    running). Replicates the Phase 1/2 deterministic stub's behavior exactly, so
+    these tests stay fast and deterministic regardless of classify.py's internals.
+    """
+
+    def _fake_classify(path: Path, text: str, config: Config) -> Classification:
+        title = path.stem.replace("_", " ").replace("-", " ").strip().title() or "Untitled"
+        first_line = next((line.strip() for line in text.splitlines() if line.strip()), "")
+        return Classification(
+            para_bucket="Resources",
+            okf_type="note",
+            title=title,
+            description=first_line[:200] or "No description available.",
+            summary=text.strip()[:400] or "No summary available.",
+            tags=["unclassified"],
+            folder_slug="unsorted",
+            confidence=0.0,
+        )
+
+    monkeypatch.setattr("okeef.classify.classify", _fake_classify)
 
 
 @pytest.fixture

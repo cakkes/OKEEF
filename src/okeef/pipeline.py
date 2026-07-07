@@ -18,7 +18,7 @@ from .models import Classification
 
 def process_file(source_path: Path, config: Config) -> Path:
     text = extract.extract_text(source_path)
-    classification = classify.classify(source_path, text)
+    classification = classify.classify(source_path, text, config)
     doc = okf_writer.render(source_path, text, classification)
     concept_path, attachment_path = okf_writer.write(doc, source_path, config.bundle_root)
     written = [concept_path] + ([attachment_path] if attachment_path else [])
