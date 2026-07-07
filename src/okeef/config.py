@@ -25,6 +25,7 @@ class Config:
     chunk_overlap: int
     openwebui_base_url: str
     openwebui_knowledge_id: str
+    openwebui_api_key: str
 
 
 def load_config(bundle_root: Path | None = None) -> Config:
@@ -51,5 +52,13 @@ def load_config(bundle_root: Path | None = None) -> Config:
         chunk_size=int(raw.get("chunk_size", 800)),
         chunk_overlap=int(raw.get("chunk_overlap", 150)),
         openwebui_base_url=openwebui.get("base_url", "http://localhost:8080"),
-        openwebui_knowledge_id=openwebui.get("knowledge_id", ""),
+        # knowledge_id is a per-machine value (each Open WebUI instance generates its
+        # own Knowledge collection UUID on first setup), so it comes from .env
+        # (machine-specific, gitignored) rather than the shared config.yaml.
+        openwebui_knowledge_id=os.environ.get(
+            "OPENWEBUI_KNOWLEDGE_ID", openwebui.get("knowledge_id", "")
+        ),
+        # Also per-machine, and a real credential (unlike knowledge_id) -- .env only,
+        # never config.yaml.
+        openwebui_api_key=os.environ.get("OPENWEBUI_API_KEY", ""),
     )

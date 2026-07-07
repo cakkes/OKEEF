@@ -75,4 +75,5 @@ def config(bundle_root: Path) -> Config:
         chunk_overlap=150,
         openwebui_base_url="http://localhost:8080",
         openwebui_knowledge_id="",
+        openwebui_api_key="",
     )

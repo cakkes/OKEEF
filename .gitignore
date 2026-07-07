@@ -1,4 +1,6 @@
 .claude/settings.local.json
+.openwebui-token.txt
+.webui_secret_key
 .venv/
 .venv-webui/
 __pycache__/

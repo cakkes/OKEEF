@@ -1,4 +1,4 @@
-"""OKEEF command-line entry point. `reindex` and `resync` are added in later phases."""
+"""OKEEF command-line entry point. `reindex` is added in a later phase."""
 
 from __future__ import annotations
 
@@ -6,7 +6,7 @@ from pathlib import Path
 
 import click
 
-from . import pipeline, review_queue, watcher
+from . import openwebui_sync, pipeline, review_queue, watcher
 from .config import load_config
 
 
@@ -62,6 +62,14 @@ def approve_cmd(staging_id: str, approved_by: str | None) -> None:
     config = load_config()
     result = pipeline.approve(staging_id, config, approved_by=approved_by)
     click.echo(f"Filed: {result.relative_to(config.bundle_root)}")
+
+
+@main.command("resync")
+def resync_cmd() -> None:
+    """Bulk re-sync every concept doc in the bundle to Open WebUI's Knowledge collection."""
+    config = load_config()
+    synced = openwebui_sync.resync_all(config)
+    click.echo(f"Synced {len(synced)} file(s).")
 
 
 if __name__ == "__main__":

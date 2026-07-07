@@ -9,11 +9,16 @@ write()/finalize() -- and whether to route through _staging/ first -- differs.
 
 from __future__ import annotations
 
+import logging
 from pathlib import Path
 
-from . import bundle_index, classify, extract, git_ops, okf_writer, review_queue
+import requests
+
+from . import bundle_index, classify, extract, git_ops, okf_writer, openwebui_sync, review_queue
 from .config import Config
 from .models import Classification
+
+logger = logging.getLogger("okeef.pipeline")
 
 
 def process_file(source_path: Path, config: Config) -> Path:
@@ -64,7 +69,22 @@ def finalize(
     if commit:
         message = _commit_message(classification, concept_path, extra_trailers or {})
         git_ops.commit_files(config.bundle_root, written_paths + index_paths, message)
+        _sync_to_openwebui(concept_path, config)
     return concept_path
+
+
+def _sync_to_openwebui(concept_path: Path, config: Config) -> None:
+    # Sync failure shouldn't break ingestion -- the commit already succeeded and is
+    # the source of truth. A failed/skipped sync can be caught up later via a bulk
+    # resync rather than blocking the pipeline on Open WebUI being configured/up.
+    if not config.openwebui_api_key or not config.openwebui_knowledge_id:
+        return
+    try:
+        openwebui_sync.sync_file(concept_path, config)
+    except openwebui_sync.SyncError as exc:
+        logger.warning("Open WebUI sync failed for %s: %s", concept_path.name, exc)
+    except requests.RequestException as exc:
+        logger.warning("Open WebUI unreachable, skipped sync for %s: %s", concept_path.name, exc)
 
 
 def _commit_message(
