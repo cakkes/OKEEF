@@ -1,0 +1,209 @@
+<#
+One-shot bootstrap for a new OKEEF checkout: installs prerequisites (git, Python 3.11,
+Ollama) if missing, creates the two venvs, installs dependencies, pulls the required
+Ollama models, sets up Open WebUI (admin account, embeddings, Knowledge collection),
+backfills any existing content, and registers the inbox watcher as a Scheduled Task.
+
+Safe to re-run: every step checks whether it's already done before acting.
+
+Usage: run from a PowerShell prompt in the repo root:
+    .\setup.ps1
+#>
+
+$ErrorActionPreference = "Stop"
+$bundleRoot = $PSScriptRoot
+
+function Refresh-Path {
+    $env:Path = [System.Environment]::GetEnvironmentVariable("Path", "Machine") + ";" +
+                [System.Environment]::GetEnvironmentVariable("Path", "User")
+}
+
+Write-Output "== OKEEF setup =="
+
+# 1. Prerequisites ------------------------------------------------------------
+Refresh-Path
+if (-not (Get-Command git -ErrorAction SilentlyContinue)) {
+    Write-Output "Installing Git..."
+    winget install --id Git.Git -e --source winget --accept-package-agreements --accept-source-agreements
+    Refresh-Path
+}
+
+$hasPy311 = $false
+try { if (py -3.11 --version 2>$null) { $hasPy311 = $true } } catch {}
+if (-not $hasPy311) {
+    Write-Output "Installing Python 3.11..."
+    winget install --id Python.Python.3.11 -e --source winget --accept-package-agreements --accept-source-agreements
+    Refresh-Path
+}
+
+if (-not (Get-Command ollama -ErrorAction SilentlyContinue)) {
+    Write-Output "Installing Ollama..."
+    winget install --id Ollama.Ollama -e --source winget --accept-package-agreements --accept-source-agreements
+    Refresh-Path
+    Start-Sleep -Seconds 5
+}
+
+# 2. Ingestion pipeline venv ---------------------------------------------------
+$venv = Join-Path $bundleRoot ".venv"
+if (-not (Test-Path "$venv\Scripts\python.exe")) {
+    Write-Output "Creating ingestion pipeline venv..."
+    py -3.11 -m venv $venv
+}
+& "$venv\Scripts\python.exe" -m pip install --upgrade pip --quiet
+& "$venv\Scripts\pip.exe" install -e "$bundleRoot[dev]" --quiet
+
+# 3. Ollama models --------------------------------------------------------------
+Refresh-Path
+$models = & ollama list 2>$null | Out-String
+if ($models -notmatch "qwen2\.5:3b-instruct") {
+    Write-Output "Pulling qwen2.5:3b-instruct (~1.9GB)..."
+    ollama pull qwen2.5:3b-instruct
+}
+if ($models -notmatch "nomic-embed-text") {
+    Write-Output "Pulling nomic-embed-text (~275MB)..."
+    ollama pull nomic-embed-text
+}
+
+# 4. Bundle skeleton (in case this is a partial checkout without content yet) --
+foreach ($bucket in @("Projects", "Areas", "Resources", "Archives")) {
+    $dir = Join-Path $bundleRoot $bucket
+    if (-not (Test-Path $dir)) { New-Item -ItemType Directory -Force -Path $dir | Out-Null }
+    $idx = Join-Path $dir "index.md"
+    if (-not (Test-Path $idx)) {
+        "# $bucket`n`n<!-- OKEEF:AUTO-INDEX:START -->`n<!-- OKEEF:AUTO-INDEX:END -->`n" |
+            Set-Content -Path $idx -Encoding utf8
+    }
+}
+foreach ($d in @("_inbox", "_staging", "_quarantine", "logs")) {
+    New-Item -ItemType Directory -Force -Path (Join-Path $bundleRoot $d) | Out-Null
+}
+
+# 5. .env ------------------------------------------------------------------
+$envPath = Join-Path $bundleRoot ".env"
+if (-not (Test-Path $envPath)) {
+    Write-Output ""
+    Write-Output "No .env found -- Open WebUI needs an admin account (created headlessly, no browser signup)."
+    $adminEmail = Read-Host "Admin email for Open WebUI"
+    $adminName = Read-Host "Admin display name"
+    Add-Type -AssemblyName System.Web
+    $generated = [System.Web.Security.Membership]::GeneratePassword(20, 4)
+    @"
+WEBUI_ADMIN_EMAIL=$adminEmail
+WEBUI_ADMIN_PASSWORD=$generated
+WEBUI_ADMIN_NAME=$adminName
+"@ | Set-Content -Path $envPath -Encoding utf8
+    Write-Output "Generated a random admin password and saved it to .env (gitignored, never printed)."
+    Write-Output "Run 'Get-Content .env' yourself later if you need to see it."
+}
+
+# 6. Open WebUI venv ------------------------------------------------------------
+$webuiVenv = Join-Path $bundleRoot ".venv-webui"
+if (-not (Test-Path "$webuiVenv\Scripts\open-webui.exe")) {
+    Write-Output "Creating Open WebUI venv (large dependency set -- several minutes)..."
+    py -3.11 -m venv $webuiVenv
+    & "$webuiVenv\Scripts\python.exe" -m pip install --upgrade pip --quiet
+    & "$webuiVenv\Scripts\pip.exe" install open-webui --quiet
+}
+
+# 7. Open WebUI first-run config (admin account, embeddings, Knowledge collection) --
+$envMap = @{}
+foreach ($line in Get-Content $envPath) {
+    if ($line -match '^([^=]+)=(.*)$') { $envMap[$matches[1]] = $matches[2] }
+}
+$needsOpenWebUiConfig = -not $envMap.ContainsKey("OPENWEBUI_API_KEY") -or -not $envMap.ContainsKey("OPENWEBUI_KNOWLEDGE_ID")
+
+if ($needsOpenWebUiConfig) {
+    Write-Output "Starting Open WebUI once to complete first-run setup..."
+    foreach ($kv in $envMap.GetEnumerator()) { [System.Environment]::SetEnvironmentVariable($kv.Key, $kv.Value, "Process") }
+    $env:DATA_DIR = Join-Path $bundleRoot "data\openwebui"
+    $env:OLLAMA_BASE_URL = "http://localhost:11434"
+    $env:ENABLE_SIGNUP = "false"
+    $env:PORT = "8080"
+    New-Item -ItemType Directory -Force -Path $env:DATA_DIR | Out-Null
+
+    $proc = Start-Process -FilePath "$webuiVenv\Scripts\open-webui.exe" -ArgumentList "serve" -WorkingDirectory $bundleRoot `
+        -RedirectStandardOutput (Join-Path $bundleRoot "logs\openwebui-stdout.log") `
+        -RedirectStandardError (Join-Path $bundleRoot "logs\openwebui-stderr.log") -PassThru
+    $proc.Id | Out-File -FilePath (Join-Path $bundleRoot "logs\openwebui.pid") -Encoding ascii
+
+    $ready = $false
+    for ($i = 0; $i -lt 60; $i++) {
+        Start-Sleep -Seconds 3
+        try {
+            if ((Invoke-WebRequest -Uri "http://localhost:8080/health" -UseBasicParsing -TimeoutSec 3).StatusCode -eq 200) {
+                $ready = $true; break
+            }
+        } catch {}
+    }
+    if (-not $ready) { throw "Open WebUI didn't become ready in time -- check logs\openwebui-stderr.log" }
+
+    $signinBody = @{ email = $envMap["WEBUI_ADMIN_EMAIL"]; password = $envMap["WEBUI_ADMIN_PASSWORD"] } | ConvertTo-Json
+    $auth = Invoke-RestMethod -Uri "http://localhost:8080/api/v1/auths/signin" -Method Post -Body $signinBody -ContentType "application/json"
+    $headers = @{ Authorization = "Bearer $($auth.token)" }
+
+    if (-not $envMap.ContainsKey("OPENWEBUI_API_KEY")) {
+        $adminConfig = Invoke-RestMethod -Uri "http://localhost:8080/api/v1/auths/admin/config" -Headers $headers -Method Get
+        $adminConfig.ENABLE_API_KEYS = $true
+        Invoke-RestMethod -Uri "http://localhost:8080/api/v1/auths/admin/config" -Headers $headers -Method Post `
+            -Body ($adminConfig | ConvertTo-Json -Depth 5) -ContentType "application/json" | Out-Null
+        $apiKeyResp = Invoke-RestMethod -Uri "http://localhost:8080/api/v1/auths/api_key" -Headers $headers -Method Post
+        Add-Content -Path $envPath -Value "OPENWEBUI_API_KEY=$($apiKeyResp.api_key)" -Encoding utf8
+    }
+
+    $embBody = @{
+        RAG_EMBEDDING_ENGINE     = "ollama"
+        RAG_EMBEDDING_MODEL      = "nomic-embed-text"
+        RAG_EMBEDDING_BATCH_SIZE = 1
+        ollama_config            = @{ url = "http://localhost:11434"; key = "" }
+    } | ConvertTo-Json -Depth 5
+    Invoke-RestMethod -Uri "http://localhost:8080/api/v1/retrieval/embedding/update" -Headers $headers -Method Post `
+        -Body $embBody -ContentType "application/json" | Out-Null
+
+    $ragCfg = Invoke-RestMethod -Uri "http://localhost:8080/api/v1/retrieval/config" -Headers $headers -Method Get
+    $ragCfg.CHUNK_SIZE = 800
+    $ragCfg.CHUNK_OVERLAP = 150
+    $ragCfg.ENABLE_RAG_HYBRID_SEARCH = $true
+    Invoke-RestMethod -Uri "http://localhost:8080/api/v1/retrieval/config/update" -Headers $headers -Method Post `
+        -Body ($ragCfg | ConvertTo-Json -Depth 10) -ContentType "application/json" | Out-Null
+
+    if (-not $envMap.ContainsKey("OPENWEBUI_KNOWLEDGE_ID")) {
+        $kBody = @{ name = "OKEEF Bundle"; description = "Personal OKF/PARA knowledgebase ($bundleRoot)" } | ConvertTo-Json
+        $knowledge = Invoke-RestMethod -Uri "http://localhost:8080/api/v1/knowledge/create" -Headers $headers -Method Post `
+            -Body $kBody -ContentType "application/json"
+        Add-Content -Path $envPath -Value "OPENWEBUI_KNOWLEDGE_ID=$($knowledge.id)" -Encoding utf8
+    }
+
+    Write-Output "Open WebUI first-run setup complete. Stopping the temporary instance."
+    Write-Output "(use scripts\start-openwebui.ps1 to run it normally, on demand)"
+    Stop-Process -Id $proc.Id -Force -ErrorAction SilentlyContinue
+    Start-Sleep -Seconds 2
+}
+
+# 8. Backfill any existing content into Open WebUI --------------------------
+Write-Output "Backfilling existing content into Open WebUI..."
+& "$webuiVenv\Scripts\open-webui.exe" --version | Out-Null  # sanity check only; server not started here
+try {
+    foreach ($kv in $envMap.GetEnumerator()) { [System.Environment]::SetEnvironmentVariable($kv.Key, $kv.Value, "Process") }
+    $proc = Start-Process -FilePath "$webuiVenv\Scripts\open-webui.exe" -ArgumentList "serve" -WorkingDirectory $bundleRoot `
+        -RedirectStandardOutput (Join-Path $bundleRoot "logs\openwebui-stdout.log") `
+        -RedirectStandardError (Join-Path $bundleRoot "logs\openwebui-stderr.log") -PassThru
+    for ($i = 0; $i -lt 30; $i++) {
+        Start-Sleep -Seconds 2
+        try {
+            if ((Invoke-WebRequest -Uri "http://localhost:8080/health" -UseBasicParsing -TimeoutSec 3).StatusCode -eq 200) { break }
+        } catch {}
+    }
+    & "$venv\Scripts\okeef.exe" resync
+    Stop-Process -Id $proc.Id -Force -ErrorAction SilentlyContinue
+} catch {
+    Write-Output "Resync skipped or failed ($($_.Exception.Message)) -- run 'okeef resync' manually later."
+}
+
+# 9. Register the watcher as a Scheduled Task --------------------------------
+& (Join-Path $bundleRoot "scripts\register-tasks.ps1")
+
+Write-Output ""
+Write-Output "== Setup complete =="
+Write-Output "- Watcher: registered to run at logon (drop a file into _inbox\ to test)."
+Write-Output "- Chat UI: run scripts\start-openwebui.ps1, then browse to http://localhost:8080"
+Write-Output "- Smoke test: 'okeef process-file <path>', or drop a file into _inbox\ and check log.md"
