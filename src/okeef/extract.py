@@ -29,7 +29,9 @@ def extract_text(path: Path) -> str:
 
 
 def _extract_plain_text(path: Path) -> str:
-    text = path.read_text(encoding="utf-8", errors="replace").strip()
+    # utf-8-sig strips a leading BOM if present (common in files saved by Notepad,
+    # PowerShell's Out-File, etc.) while behaving identically to utf-8 otherwise.
+    text = path.read_text(encoding="utf-8-sig", errors="replace").strip()
     if not text:
         raise ExtractionError("File is empty")
     return text

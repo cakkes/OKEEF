@@ -1,5 +1,5 @@
-"""OKEEF command-line entry point. `process-file` is the only command in Phase 1;
-`watch`, `approve`, `reindex`, and `resync` are added in their respective build phases.
+"""OKEEF command-line entry point. `process-file` and `watch` exist as of Phase 2;
+`approve`, `reindex`, and `resync` are added in their respective later build phases.
 """
 
 from __future__ import annotations
@@ -8,7 +8,7 @@ from pathlib import Path
 
 import click
 
-from . import pipeline
+from . import pipeline, watcher
 from .config import load_config
 
 
@@ -24,6 +24,12 @@ def process_file_cmd(path: Path) -> None:
     config = load_config()
     result = pipeline.process_file(path.resolve(), config)
     click.echo(f"Filed: {result.relative_to(config.bundle_root)}")
+
+
+@main.command("watch")
+def watch_cmd() -> None:
+    """Run the startup catch-up scan, then watch _inbox for new files (foreground; Ctrl+C to stop)."""
+    watcher.run()
 
 
 if __name__ == "__main__":
