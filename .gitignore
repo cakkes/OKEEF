@@ -1,0 +1,15 @@
+.claude/settings.local.json
+.venv/
+.venv-webui/
+__pycache__/
+*.pyc
+.env
+logs/*
+!logs/.gitkeep
+_staging/*
+!_staging/.gitkeep
+_quarantine/*
+!_quarantine/.gitkeep
+data/openwebui/
+.pytest_cache/
+*.egg-info/
