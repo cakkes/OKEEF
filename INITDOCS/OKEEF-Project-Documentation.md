@@ -344,7 +344,7 @@ recovery procedure).
 `Register-ScheduledTask` was observed to write a non-terminating "Access is
 denied" error to the error stream while the script's `$ErrorActionPreference
 = "Stop"` didn't catch it, and execution continued to print a false "success"
-message. `scripts\register-tasks.ps1` now wraps the call in `try/catch` *and*
+message. `App\scripts\register-tasks.ps1` now wraps the call in `try/catch` *and*
 independently verifies the task exists via `Get-ScheduledTask` afterward
 before reporting success — belt-and-suspenders, since either mechanism alone
 was insufficient.
@@ -452,6 +452,10 @@ working before moving to the next:
 6. Windows service management (Scheduled Task + launcher scripts).
 7. Replicability validation (`setup.ps1` idempotency testing) + this
    documentation + `README.md`.
+8. Repository split (`Knowledgebase`/`App`, §4), `Config`'s `repo_root`/
+   `app_root`/`bundle_root` split, the PARA-folder scanner (`para_scan.py`,
+   §6), and the `Start-Service.bat`/`Scan-ParaFolders.bat` on-demand
+   launchers.
 
 Full detail is in the git log — every phase and every bug fix in §9 has its
 own commit with a detailed message explaining what changed and why.

@@ -6,28 +6,41 @@ version — for setup or technical details, see `README.md` or
 
 ## Add something to your knowledgebase
 
-Drop a file into `D:\OKEEF\_inbox\` — `.txt`, `.md`, `.pdf`, or `.docx`.
+Drop a file into `D:\OKEEF\App\_inbox\` — `.txt`, `.md`, `.pdf`, or `.docx`.
 
 That's it. Within a few seconds, it's automatically:
 - read and summarized
 - tagged and filed into the right folder (Projects, Areas, Resources, or Archives)
+  under `D:\OKEEF\Knowledgebase\`
 - saved permanently (committed to git)
 
 The file disappears from `_inbox` once it's been processed — that's normal,
 it's now living in its new folder as a formatted note.
 
-**No watcher running?** Files just sit in `_inbox` until the watcher starts
-(it should start automatically when you log in, once set up — see README).
-You can also process one file manually any time:
+**No watcher running?** Files just sit in `_inbox` until the watcher starts.
+Either double-click `D:\OKEEF\App\scripts\Start-Service.bat` to start it right
+now (it should also start automatically when you log in, once set up — see
+README), or process one file manually any time:
 ```powershell
-D:\OKEEF\.venv\Scripts\okeef.exe process-file "D:\OKEEF\_inbox\yourfile.txt"
+D:\OKEEF\App\.venv\Scripts\okeef.exe process-file "D:\OKEEF\App\_inbox\yourfile.txt"
 ```
+
+## Filed something by hand instead of using `_inbox`
+
+If you drag a raw file directly into `Knowledgebase\Projects\`, `Areas\`,
+`Resources\`, or `Archives\` (instead of dropping it into `_inbox`), it won't
+be touched automatically — you need to run the PARA-folder scanner:
+
+Double-click `D:\OKEEF\App\scripts\Scan-ParaFolders.bat` (or run
+`okeef scan-para`). It finds every such file and turns it into a proper
+note — **in the exact folder you put it in**, never moved to a different
+bucket, unlike the automatic `_inbox` flow above.
 
 ## Ask questions about your notes
 
 1. Start the chat interface:
    ```powershell
-   D:\OKEEF\scripts\start-openwebui.ps1
+   D:\OKEEF\App\scripts\start-openwebui.ps1
    ```
 2. Open your browser to **http://localhost:8080**
 3. Ask a question — answers are grounded in your actual notes, with citations
@@ -61,55 +74,61 @@ move — the next automated ingest will refresh the folder listing naturally.)
 
 **Or turn on review-before-filing mode**, so you approve everything before
 it's saved, instead of fixing it after the fact:
-1. Open `D:\OKEEF\.env` in Notepad
+1. Open `D:\OKEEF\App\.env` in Notepad
 2. Add or change the line: `AUTO_COMMIT=false`
 3. Save. New files now get staged for your review instead of filed immediately.
 
 With review mode on:
 - `okeef list-staged` — see what's waiting for review
-- Open `_staging\<id>\draft.md` in any text editor — you can fix the title,
-  tags, or even which folder it's headed for (the `_para_bucket` /
+- Open `App\_staging\<id>\draft.md` in any text editor — you can fix the
+  title, tags, or even which folder it's headed for (the `_para_bucket` /
   `_folder_slug` lines at the top), then save
 - `okeef approve <id>` — files it for real
 
 Turn `AUTO_COMMIT` back to `true` any time you want to go back to fully
-automatic.
+automatic. Note: review mode only applies to the `_inbox` flow — the
+PARA-folder scanner above always files and commits immediately.
 
 ## If a file doesn't get processed
 
-Check `D:\OKEEF\_quarantine\` — failed files land here with a
+Check `D:\OKEEF\App\_quarantine\` — failed files land here with a
 `<filename>.reason.txt` explaining what went wrong (common causes: a scanned
 PDF with no selectable text, or an unsupported file type). Fix the issue (or
 just re-save the file in a supported format) and drop it back into `_inbox`.
 
 ## Quick command reference
 
-Run these from a PowerShell window (paths assume the default install):
+Run these from a PowerShell window (paths assume the default install), or
+just double-click `Start-Service.bat` / `Scan-ParaFolders.bat` in
+`App\scripts\` for the first two:
 
 ```powershell
 # Process one file right now, without waiting for the watcher
-D:\OKEEF\.venv\Scripts\okeef.exe process-file "<path to file>"
+D:\OKEEF\App\.venv\Scripts\okeef.exe process-file "<path to file>"
+
+# Scan the PARA folders for anything filed by hand, and OKF-ify it in place
+D:\OKEEF\App\.venv\Scripts\okeef.exe scan-para
 
 # See what's waiting for review (only matters if AUTO_COMMIT=false)
-D:\OKEEF\.venv\Scripts\okeef.exe list-staged
+D:\OKEEF\App\.venv\Scripts\okeef.exe list-staged
 
 # Approve a staged file
-D:\OKEEF\.venv\Scripts\okeef.exe approve <id>
+D:\OKEEF\App\.venv\Scripts\okeef.exe approve <id>
 
 # Start the chat UI
-D:\OKEEF\scripts\start-openwebui.ps1
+D:\OKEEF\App\scripts\start-openwebui.ps1
 
 # Catch the chat UI up on anything it's missing (rarely needed)
-D:\OKEEF\.venv\Scripts\okeef.exe resync
+D:\OKEEF\App\.venv\Scripts\okeef.exe resync
 ```
 
 ## Where everything actually lives
 
-- Your notes: `D:\OKEEF\Projects`, `Areas`, `Resources`, `Archives`
-- Drop zone: `D:\OKEEF\_inbox`
-- Failed items: `D:\OKEEF\_quarantine`
-- Pending review (if enabled): `D:\OKEEF\_staging`
-- Full change history: `D:\OKEEF\log.md`, or `git log` in a terminal
+- Your notes: `D:\OKEEF\Knowledgebase\Projects`, `Areas`, `Resources`, `Archives`
+- Drop zone: `D:\OKEEF\App\_inbox`
+- Failed items: `D:\OKEEF\App\_quarantine`
+- Pending review (if enabled): `D:\OKEEF\App\_staging`
+- Full change history: `D:\OKEEF\Knowledgebase\log.md`, or `git log` in a terminal
 
 Everything is backed by git, so nothing is ever silently lost — even a bad
 auto-classification is just a commit that can be found and fixed.
