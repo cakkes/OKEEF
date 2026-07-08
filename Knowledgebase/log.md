@@ -1,6 +1,7 @@
 # Log
 
 ## 2026-07-08
+* **Creation**: [Post-Reorg Smoke Test Note](/Archives/reorg-notes/post-reorg-smoke-test-note.md) (Archives/note)
 * **Creation**: [JRA Writing Style Guidelines](/Resources/jra-writing-style/jra-writing-style-guidelines.md) (Resources/reference)
 * **Creation**: [LinkedIn Profile Summary](/Resources/linkedin-profiles/linkedin-profile-summary.md) (Resources/reference)
 
