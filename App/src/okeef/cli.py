@@ -6,7 +6,7 @@ from pathlib import Path
 
 import click
 
-from . import openwebui_sync, pipeline, review_queue, watcher
+from . import openwebui_sync, para_scan, pipeline, review_queue, watcher
 from .config import load_config
 
 
@@ -42,12 +42,12 @@ def watch_cmd() -> None:
 def list_staged_cmd() -> None:
     """List drafts waiting for review in _staging/ (only relevant when AUTO_COMMIT=false)."""
     config = load_config()
-    ids = review_queue.list_staged(config.bundle_root)
+    ids = review_queue.list_staged(config.app_root)
     if not ids:
         click.echo("Nothing staged for review.")
         return
     for staging_id in ids:
-        staged = review_queue.load_staged(staging_id, config.bundle_root)
+        staged = review_queue.load_staged(staging_id, config.app_root)
         c = staged.classification
         click.echo(
             f"{staging_id}  {c.para_bucket}/{c.folder_slug}  {c.title!r}  (confidence {c.confidence:.2f})"
@@ -62,6 +62,19 @@ def approve_cmd(staging_id: str, approved_by: str | None) -> None:
     config = load_config()
     result = pipeline.approve(staging_id, config, approved_by=approved_by)
     click.echo(f"Filed: {result.relative_to(config.bundle_root)}")
+
+
+@main.command("scan-para")
+def scan_para_cmd() -> None:
+    """Scan the PARA folders for hand-added files never run through the pipeline,
+    and OKF-ify them in place (bucket/folder as filed by hand, not reclassified)."""
+    config = load_config()
+    written = para_scan.scan(config)
+    if not written:
+        click.echo("Nothing to process.")
+        return
+    for path in written:
+        click.echo(f"Filed: {path.relative_to(config.bundle_root)}")
 
 
 @main.command("resync")

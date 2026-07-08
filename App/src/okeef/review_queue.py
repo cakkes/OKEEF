@@ -32,8 +32,8 @@ class StagingError(Exception):
     pass
 
 
-def stage_draft(doc: OKFDoc, source_path: Path, bundle_root: Path) -> str:
-    staging_root = bundle_root / "_staging"
+def stage_draft(doc: OKFDoc, source_path: Path, app_root: Path) -> str:
+    staging_root = app_root / "_staging"
     staging_id = uuid.uuid4().hex[:8]
     staging_dir = staging_root / staging_id
     while staging_dir.exists():
@@ -76,8 +76,8 @@ class StagedDraft:
     original_source_path: Path
 
 
-def load_staged(staging_id: str, bundle_root: Path) -> StagedDraft:
-    staging_dir = bundle_root / "_staging" / staging_id
+def load_staged(staging_id: str, app_root: Path) -> StagedDraft:
+    staging_dir = app_root / "_staging" / staging_id
     draft_path = staging_dir / DRAFT_FILENAME
     proposal_path = staging_dir / PROPOSAL_FILENAME
     if not draft_path.exists() or not proposal_path.exists():
@@ -114,14 +114,14 @@ def load_staged(staging_id: str, bundle_root: Path) -> StagedDraft:
     return StagedDraft(doc=doc, classification=classification, original_source_path=original_source_path)
 
 
-def cleanup_staged(staging_id: str, bundle_root: Path) -> None:
-    staging_dir = bundle_root / "_staging" / staging_id
+def cleanup_staged(staging_id: str, app_root: Path) -> None:
+    staging_dir = app_root / "_staging" / staging_id
     if staging_dir.exists():
         shutil.rmtree(staging_dir)
 
 
-def list_staged(bundle_root: Path) -> list[str]:
-    staging_root = bundle_root / "_staging"
+def list_staged(app_root: Path) -> list[str]:
+    staging_root = app_root / "_staging"
     if not staging_root.exists():
         return []
     return sorted(

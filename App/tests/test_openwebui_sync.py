@@ -107,12 +107,12 @@ def test_sync_file_raises_on_processing_failure(tmp_path: Path, sync_config: Con
 
 
 def test_resync_all_signs_in_once_and_reuses_token(
-    bundle_root: Path, sync_config: Config, monkeypatch
+    bundle_root: Path, app_root: Path, sync_config: Config, monkeypatch
 ) -> None:
     concept = bundle_root / "Resources" / "note.md"
     concept.write_text("---\ntitle: Note\n---\n\nbody", encoding="utf-8")
 
-    staged = bundle_root / "_staging" / "abc123"
+    staged = app_root / "_staging" / "abc123"
     staged.mkdir(parents=True)
     (staged / "draft.md").write_text("---\ntitle: Draft\n---\n\nbody", encoding="utf-8")
 
@@ -139,10 +139,11 @@ def test_resync_all_signs_in_once_and_reuses_token(
 def test_resync_all_does_not_walk_venv_or_bundle_root(
     bundle_root: Path, sync_config: Config, monkeypatch
 ) -> None:
-    # Regression test: resync_all() must not rglob the whole bundle_root, since
-    # .venv/.venv-webui live inside it and contain thousands of unrelated .md files
-    # from installed packages (this actually happened and polluted a real Knowledge
-    # collection with LICENSE.md / pytest-cache content during development).
+    # Regression test: resync_all() must not rglob the whole bundle_root. .venv/
+    # .venv-webui live under App/ now (a sibling of Knowledgebase/), but used to live
+    # inside bundle_root and polluted a real Knowledge collection with LICENSE.md /
+    # pytest-cache content during development -- this guards the per-bucket scoping
+    # that makes that impossible regardless of what ends up sitting at bundle_root.
     venv_md = bundle_root / ".venv" / "Lib" / "site-packages" / "somepkg" / "LICENSE.md"
     venv_md.parent.mkdir(parents=True)
     venv_md.write_text("MIT License text", encoding="utf-8")

@@ -30,10 +30,11 @@ def process_file(source_path: Path, config: Config) -> Path:
     doc = okf_writer.render(source_path, text, classification)
 
     if not config.auto_commit:
-        staging_id = review_queue.stage_draft(doc, source_path, config.bundle_root)
-        return config.bundle_root / "_staging" / staging_id
+        staging_id = review_queue.stage_draft(doc, source_path, config.app_root)
+        return config.app_root / "_staging" / staging_id
 
-    concept_path, attachment_path = okf_writer.write(doc, source_path, config.bundle_root)
+    inbox_dir = config.app_root / "_inbox"
+    concept_path, attachment_path = okf_writer.write(doc, source_path, config.bundle_root, inbox_dir)
     written = [concept_path] + ([attachment_path] if attachment_path else [])
     return finalize(written, concept_path, classification, config, commit=True)
 
@@ -42,9 +43,10 @@ def approve(staging_id: str, config: Config, approved_by: str | None = None) -> 
     """Files and commits a draft that was staged under AUTO_COMMIT=false, after a
     human has reviewed it (and optionally hand-edited _staging/<id>/draft.md).
     """
-    staged = review_queue.load_staged(staging_id, config.bundle_root)
+    staged = review_queue.load_staged(staging_id, config.app_root)
+    inbox_dir = config.app_root / "_inbox"
     concept_path, attachment_path = okf_writer.write(
-        staged.doc, staged.original_source_path, config.bundle_root
+        staged.doc, staged.original_source_path, config.bundle_root, inbox_dir
     )
     written = [concept_path] + ([attachment_path] if attachment_path else [])
     extra_trailers = {"Reviewed": "true"}
@@ -53,7 +55,7 @@ def approve(staging_id: str, config: Config, approved_by: str | None = None) -> 
     result = finalize(
         written, concept_path, staged.classification, config, commit=True, extra_trailers=extra_trailers
     )
-    review_queue.cleanup_staged(staging_id, config.bundle_root)
+    review_queue.cleanup_staged(staging_id, config.app_root)
     return result
 
 
@@ -68,7 +70,7 @@ def finalize(
     index_paths = bundle_index.update_after_write(concept_path, config.bundle_root, classification)
     if commit:
         message = _commit_message(classification, concept_path, extra_trailers or {})
-        git_ops.commit_files(config.bundle_root, written_paths + index_paths, message)
+        git_ops.commit_files(config.repo_root, written_paths + index_paths, message)
         _sync_to_openwebui(concept_path, config)
     return concept_path
 

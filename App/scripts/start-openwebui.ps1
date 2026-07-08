@@ -8,9 +8,9 @@ Runs in the foreground; Ctrl+C (or close the window) to stop.
 #>
 
 $ErrorActionPreference = "Stop"
-$bundleRoot = (Resolve-Path "$PSScriptRoot\..").Path
+$appRoot = (Resolve-Path "$PSScriptRoot\..").Path
 
-$envPath = Join-Path $bundleRoot ".env"
+$envPath = Join-Path $appRoot ".env"
 if (Test-Path $envPath) {
     foreach ($line in Get-Content $envPath) {
         if ($line -match '^([^#][^=]*)=(.*)$') {
@@ -19,13 +19,13 @@ if (Test-Path $envPath) {
     }
 }
 
-$env:DATA_DIR = Join-Path $bundleRoot "data\openwebui"
+$env:DATA_DIR = Join-Path $appRoot "data\openwebui"
 if (-not $env:OLLAMA_BASE_URL) { $env:OLLAMA_BASE_URL = "http://localhost:11434" }
 if (-not $env:PORT) { $env:PORT = "8080" }
 $env:ENABLE_SIGNUP = "false"
 New-Item -ItemType Directory -Force -Path $env:DATA_DIR | Out-Null
 
-$openWebUiExe = Join-Path $bundleRoot ".venv-webui\Scripts\open-webui.exe"
+$openWebUiExe = Join-Path $appRoot ".venv-webui\Scripts\open-webui.exe"
 if (-not (Test-Path $openWebUiExe)) {
     throw "Open WebUI is not installed at $openWebUiExe -- run setup.ps1 first."
 }

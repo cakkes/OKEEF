@@ -33,19 +33,9 @@ def stub_classification(monkeypatch):
 
 
 @pytest.fixture
-def bundle_root(tmp_path: Path) -> Path:
-    root = tmp_path / "bundle"
-    for bucket in ["Projects", "Areas", "Resources", "Archives"]:
-        (root / bucket).mkdir(parents=True)
-        (root / bucket / "index.md").write_text(
-            f"# {bucket}\n\n<!-- OKEEF:AUTO-INDEX:START -->\n<!-- OKEEF:AUTO-INDEX:END -->\n",
-            encoding="utf-8",
-        )
-    (root / "_inbox").mkdir()
-    (root / "_staging").mkdir()
-    root_index = "---\nokf_version: \"0.1\"\ntitle: Test Bundle\n---\n\n# Test Bundle\n"
-    (root / "index.md").write_text(root_index, encoding="utf-8")
-    (root / "log.md").write_text("# Log\n", encoding="utf-8")
+def repo_root(tmp_path: Path) -> Path:
+    root = tmp_path / "repo"
+    root.mkdir()
 
     # A real (throwaway, tmp_path-isolated) git repo, since Phase 4 onward tests
     # exercise the actual commit path rather than skipping it.
@@ -63,8 +53,34 @@ def bundle_root(tmp_path: Path) -> Path:
 
 
 @pytest.fixture
-def config(bundle_root: Path) -> Config:
+def bundle_root(repo_root: Path) -> Path:
+    root = repo_root / "Knowledgebase"
+    for bucket in ["Projects", "Areas", "Resources", "Archives"]:
+        (root / bucket).mkdir(parents=True)
+        (root / bucket / "index.md").write_text(
+            f"# {bucket}\n\n<!-- OKEEF:AUTO-INDEX:START -->\n<!-- OKEEF:AUTO-INDEX:END -->\n",
+            encoding="utf-8",
+        )
+    root_index = "---\nokf_version: \"0.1\"\ntitle: Test Bundle\n---\n\n# Test Bundle\n"
+    (root / "index.md").write_text(root_index, encoding="utf-8")
+    (root / "log.md").write_text("# Log\n", encoding="utf-8")
+    return root
+
+
+@pytest.fixture
+def app_root(repo_root: Path) -> Path:
+    root = repo_root / "App"
+    (root / "_inbox").mkdir(parents=True)
+    (root / "_staging").mkdir()
+    (root / "_quarantine").mkdir()
+    return root
+
+
+@pytest.fixture
+def config(repo_root: Path, bundle_root: Path, app_root: Path) -> Config:
     return Config(
+        repo_root=repo_root,
+        app_root=app_root,
         bundle_root=bundle_root,
         auto_commit=True,
         para_buckets=["Projects", "Areas", "Resources", "Archives"],

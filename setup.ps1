@@ -11,7 +11,9 @@ Usage: run from a PowerShell prompt in the repo root:
 #>
 
 $ErrorActionPreference = "Stop"
-$bundleRoot = $PSScriptRoot
+$repoRoot = $PSScriptRoot
+$appRoot = Join-Path $repoRoot "App"
+$knowledgebaseRoot = Join-Path $repoRoot "Knowledgebase"
 
 function Refresh-Path {
     $env:Path = [System.Environment]::GetEnvironmentVariable("Path", "Machine") + ";" +
@@ -44,13 +46,14 @@ if (-not (Get-Command ollama -ErrorAction SilentlyContinue)) {
 }
 
 # 2. Ingestion pipeline venv ---------------------------------------------------
-$venv = Join-Path $bundleRoot ".venv"
+New-Item -ItemType Directory -Force -Path $appRoot | Out-Null
+$venv = Join-Path $appRoot ".venv"
 if (-not (Test-Path "$venv\Scripts\python.exe")) {
     Write-Output "Creating ingestion pipeline venv..."
     py -3.11 -m venv $venv
 }
 & "$venv\Scripts\python.exe" -m pip install --upgrade pip --quiet
-& "$venv\Scripts\pip.exe" install -e "$bundleRoot[dev]" --quiet
+& "$venv\Scripts\pip.exe" install -e "$appRoot[dev]" --quiet
 
 # 3. Ollama models --------------------------------------------------------------
 Refresh-Path
@@ -66,7 +69,7 @@ if ($models -notmatch "nomic-embed-text") {
 
 # 4. Bundle skeleton (in case this is a partial checkout without content yet) --
 foreach ($bucket in @("Projects", "Areas", "Resources", "Archives")) {
-    $dir = Join-Path $bundleRoot $bucket
+    $dir = Join-Path $knowledgebaseRoot $bucket
     if (-not (Test-Path $dir)) { New-Item -ItemType Directory -Force -Path $dir | Out-Null }
     $idx = Join-Path $dir "index.md"
     if (-not (Test-Path $idx)) {
@@ -75,11 +78,11 @@ foreach ($bucket in @("Projects", "Areas", "Resources", "Archives")) {
     }
 }
 foreach ($d in @("_inbox", "_staging", "_quarantine", "logs")) {
-    New-Item -ItemType Directory -Force -Path (Join-Path $bundleRoot $d) | Out-Null
+    New-Item -ItemType Directory -Force -Path (Join-Path $appRoot $d) | Out-Null
 }
 
 # 5. .env ------------------------------------------------------------------
-$envPath = Join-Path $bundleRoot ".env"
+$envPath = Join-Path $appRoot ".env"
 if (-not (Test-Path $envPath)) {
     Write-Output ""
     Write-Output "No .env found -- Open WebUI needs an admin account (created headlessly, no browser signup)."
@@ -97,7 +100,7 @@ if (-not (Test-Path $envPath)) {
 }
 
 # 6. Open WebUI venv ------------------------------------------------------------
-$webuiVenv = Join-Path $bundleRoot ".venv-webui"
+$webuiVenv = Join-Path $appRoot ".venv-webui"
 if (-not (Test-Path "$webuiVenv\Scripts\open-webui.exe")) {
     Write-Output "Creating Open WebUI venv (large dependency set -- several minutes)..."
     py -3.11 -m venv $webuiVenv
@@ -118,16 +121,16 @@ $needsOpenWebUiConfig = -not $envMap.ContainsKey("OPENWEBUI_KNOWLEDGE_ID")
 if ($needsOpenWebUiConfig) {
     Write-Output "Starting Open WebUI once to complete first-run setup..."
     foreach ($kv in $envMap.GetEnumerator()) { [System.Environment]::SetEnvironmentVariable($kv.Key, $kv.Value, "Process") }
-    $env:DATA_DIR = Join-Path $bundleRoot "data\openwebui"
+    $env:DATA_DIR = Join-Path $appRoot "data\openwebui"
     $env:OLLAMA_BASE_URL = "http://localhost:11434"
     $env:ENABLE_SIGNUP = "false"
     $env:PORT = "8080"
     New-Item -ItemType Directory -Force -Path $env:DATA_DIR | Out-Null
 
-    $proc = Start-Process -FilePath "$webuiVenv\Scripts\open-webui.exe" -ArgumentList "serve" -WorkingDirectory $bundleRoot `
-        -RedirectStandardOutput (Join-Path $bundleRoot "logs\openwebui-stdout.log") `
-        -RedirectStandardError (Join-Path $bundleRoot "logs\openwebui-stderr.log") -PassThru
-    $proc.Id | Out-File -FilePath (Join-Path $bundleRoot "logs\openwebui.pid") -Encoding ascii
+    $proc = Start-Process -FilePath "$webuiVenv\Scripts\open-webui.exe" -ArgumentList "serve" -WorkingDirectory $appRoot `
+        -RedirectStandardOutput (Join-Path $appRoot "logs\openwebui-stdout.log") `
+        -RedirectStandardError (Join-Path $appRoot "logs\openwebui-stderr.log") -PassThru
+    $proc.Id | Out-File -FilePath (Join-Path $appRoot "logs\openwebui.pid") -Encoding ascii
 
     $ready = $false
     for ($i = 0; $i -lt 60; $i++) {
@@ -161,14 +164,14 @@ if ($needsOpenWebUiConfig) {
         -Body ($ragCfg | ConvertTo-Json -Depth 10) -ContentType "application/json" | Out-Null
 
     if (-not $envMap.ContainsKey("OPENWEBUI_KNOWLEDGE_ID")) {
-        $kBody = @{ name = "OKEEF Bundle"; description = "Personal OKF/PARA knowledgebase ($bundleRoot)" } | ConvertTo-Json
+        $kBody = @{ name = "OKEEF Bundle"; description = "Personal OKF/PARA knowledgebase ($knowledgebaseRoot)" } | ConvertTo-Json
         $knowledge = Invoke-RestMethod -Uri "http://localhost:8080/api/v1/knowledge/create" -Headers $headers -Method Post `
             -Body $kBody -ContentType "application/json"
         Add-Content -Path $envPath -Value "OPENWEBUI_KNOWLEDGE_ID=$($knowledge.id)" -Encoding ascii
     }
 
     Write-Output "Open WebUI first-run setup complete. Stopping the temporary instance."
-    Write-Output "(use scripts\start-openwebui.ps1 to run it normally, on demand)"
+    Write-Output "(use App\scripts\start-openwebui.ps1 to run it normally, on demand)"
     Stop-Process -Id $proc.Id -Force -ErrorAction SilentlyContinue
     Start-Sleep -Seconds 2
 }
@@ -183,12 +186,12 @@ if ($needsOpenWebUiConfig) {
     Write-Output "Backfilling existing content into Open WebUI..."
     try {
         foreach ($kv in $envMap.GetEnumerator()) { [System.Environment]::SetEnvironmentVariable($kv.Key, $kv.Value, "Process") }
-        $env:DATA_DIR = Join-Path $bundleRoot "data\openwebui"
+        $env:DATA_DIR = Join-Path $appRoot "data\openwebui"
         if (-not $env:OLLAMA_BASE_URL) { $env:OLLAMA_BASE_URL = "http://localhost:11434" }
         $env:ENABLE_SIGNUP = "false"
-        $proc = Start-Process -FilePath "$webuiVenv\Scripts\open-webui.exe" -ArgumentList "serve" -WorkingDirectory $bundleRoot `
-            -RedirectStandardOutput (Join-Path $bundleRoot "logs\openwebui-stdout.log") `
-            -RedirectStandardError (Join-Path $bundleRoot "logs\openwebui-stderr.log") -PassThru
+        $proc = Start-Process -FilePath "$webuiVenv\Scripts\open-webui.exe" -ArgumentList "serve" -WorkingDirectory $appRoot `
+            -RedirectStandardOutput (Join-Path $appRoot "logs\openwebui-stdout.log") `
+            -RedirectStandardError (Join-Path $appRoot "logs\openwebui-stderr.log") -PassThru
         for ($i = 0; $i -lt 30; $i++) {
             Start-Sleep -Seconds 2
             try {
@@ -205,10 +208,10 @@ if ($needsOpenWebUiConfig) {
 }
 
 # 9. Register the watcher as a Scheduled Task --------------------------------
-& (Join-Path $bundleRoot "scripts\register-tasks.ps1")
+& (Join-Path $appRoot "scripts\register-tasks.ps1")
 
 Write-Output ""
 Write-Output "== Setup complete =="
-Write-Output "- Watcher: registered to run at logon (drop a file into _inbox\ to test)."
-Write-Output "- Chat UI: run scripts\start-openwebui.ps1, then browse to http://localhost:8080"
-Write-Output "- Smoke test: 'okeef process-file <path>', or drop a file into _inbox\ and check log.md"
+Write-Output "- Watcher: registered to run at logon (drop a file into App\_inbox\ to test)."
+Write-Output "- Chat UI: run App\scripts\start-openwebui.ps1, then browse to http://localhost:8080"
+Write-Output "- Smoke test: 'okeef process-file <path>', or drop a file into App\_inbox\ and check Knowledgebase\log.md"

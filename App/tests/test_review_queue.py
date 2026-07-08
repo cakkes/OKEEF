@@ -9,14 +9,16 @@ from okeef.config import Config
 from okeef.git_ops import _git_executable
 
 
-def test_process_file_stages_instead_of_filing(bundle_root: Path, config: Config) -> None:
+def test_process_file_stages_instead_of_filing(
+    repo_root: Path, bundle_root: Path, app_root: Path, config: Config
+) -> None:
     review_config = dataclasses.replace(config, auto_commit=False)
-    source = bundle_root / "_inbox" / "Draft Note.txt"
+    source = app_root / "_inbox" / "Draft Note.txt"
     source.write_text("Some draft content.", encoding="utf-8")
 
     result = pipeline.process_file(source, review_config)
 
-    assert result.parent == bundle_root / "_staging"
+    assert result.parent == app_root / "_staging"
     assert not source.exists()  # moved out of _inbox into staging
     assert (result / "draft.md").exists()
     assert (result / "proposal.json").exists()
@@ -26,14 +28,16 @@ def test_process_file_stages_instead_of_filing(bundle_root: Path, config: Config
     assert not (bundle_root / "Resources" / "unsorted").exists()
     git = _git_executable()
     log = subprocess.run(
-        [git, "-C", str(bundle_root), "log", "--oneline"], capture_output=True, text=True
+        [git, "-C", str(repo_root), "log", "--oneline"], capture_output=True, text=True
     )
     assert log.stdout.strip() == ""  # no commits yet
 
 
-def test_approve_files_and_commits_staged_draft(bundle_root: Path, config: Config) -> None:
+def test_approve_files_and_commits_staged_draft(
+    repo_root: Path, bundle_root: Path, app_root: Path, config: Config
+) -> None:
     review_config = dataclasses.replace(config, auto_commit=False)
-    source = bundle_root / "_inbox" / "Draft Note.txt"
+    source = app_root / "_inbox" / "Draft Note.txt"
     source.write_text("Some draft content.", encoding="utf-8")
     staging_dir = pipeline.process_file(source, review_config)
     staging_id = staging_dir.name
@@ -49,7 +53,7 @@ def test_approve_files_and_commits_staged_draft(bundle_root: Path, config: Confi
 
     git = _git_executable()
     log = subprocess.run(
-        [git, "-C", str(bundle_root), "log", "-1", "--format=%B"],
+        [git, "-C", str(repo_root), "log", "-1", "--format=%B"],
         capture_output=True,
         text=True,
         check=True,
@@ -59,10 +63,10 @@ def test_approve_files_and_commits_staged_draft(bundle_root: Path, config: Confi
 
 
 def test_hand_edited_title_and_bucket_are_respected_on_approve(
-    bundle_root: Path, config: Config
+    bundle_root: Path, app_root: Path, config: Config
 ) -> None:
     review_config = dataclasses.replace(config, auto_commit=False)
-    source = bundle_root / "_inbox" / "Draft Note.txt"
+    source = app_root / "_inbox" / "Draft Note.txt"
     source.write_text("Some draft content.", encoding="utf-8")
     staging_dir = pipeline.process_file(source, review_config)
     staging_id = staging_dir.name
@@ -80,12 +84,12 @@ def test_hand_edited_title_and_bucket_are_respected_on_approve(
     assert post.metadata["title"] == "Corrected Title"
 
 
-def test_list_staged(bundle_root: Path, config: Config) -> None:
+def test_list_staged(app_root: Path, config: Config) -> None:
     review_config = dataclasses.replace(config, auto_commit=False)
     for name in ["one.txt", "two.txt"]:
-        source = bundle_root / "_inbox" / name
+        source = app_root / "_inbox" / name
         source.write_text("content", encoding="utf-8")
         pipeline.process_file(source, review_config)
 
-    ids = review_queue.list_staged(bundle_root)
+    ids = review_queue.list_staged(app_root)
     assert len(ids) == 2

@@ -50,16 +50,40 @@ def render(source_path: Path, text: str, classification: Classification) -> OKFD
     return OKFDoc(frontmatter=frontmatter, body=body, classification=classification)
 
 
-def write(doc: OKFDoc, source_path: Path, bundle_root: Path) -> tuple[Path, Path | None]:
+def write(
+    doc: OKFDoc, source_path: Path, bundle_root: Path, inbox_dir: Path
+) -> tuple[Path, Path | None]:
     """Writes the concept doc (and attachment, if any) into its final PARA location,
     and removes the source file if it was sitting in _inbox. Returns
     (concept_path, attachment_path_or_None).
     """
     c = doc.classification
     target_dir = bundle_root / c.para_bucket / c.folder_slug
+    concept_path, attachment_path = _write_at(doc, source_path, target_dir)
+
+    if source_path.parent == inbox_dir and source_path.exists():
+        source_path.unlink()
+
+    return concept_path, attachment_path
+
+
+def write_in_place(doc: OKFDoc, source_path: Path) -> tuple[Path, Path | None]:
+    """Like write(), but for files a human already filed by hand directly under a
+    PARA folder (see para_scan.py): the classifier's para_bucket/folder_slug are
+    ignored for placement -- the doc is written into source_path's own folder,
+    respecting wherever the human put it -- and the original raw file is always
+    replaced (there's no _inbox concept here, so the deletion isn't conditional).
+    """
+    concept_path, attachment_path = _write_at(doc, source_path, source_path.parent)
+    if source_path.exists():
+        source_path.unlink()
+    return concept_path, attachment_path
+
+
+def _write_at(doc: OKFDoc, source_path: Path, target_dir: Path) -> tuple[Path, Path | None]:
     target_dir.mkdir(parents=True, exist_ok=True)
 
-    concept_path = _unique_path(target_dir, slugify(c.title), ".md")
+    concept_path = _unique_path(target_dir, slugify(doc.classification.title), ".md")
 
     attachment_path = None
     suffix = source_path.suffix.lower()
@@ -75,10 +99,6 @@ def write(doc: OKFDoc, source_path: Path, bundle_root: Path) -> tuple[Path, Path
         + doc.body
     )
     concept_path.write_text(content, encoding="utf-8")
-
-    inbox_dir = bundle_root / "_inbox"
-    if source_path.parent == inbox_dir and source_path.exists():
-        source_path.unlink()
 
     return concept_path, attachment_path
 

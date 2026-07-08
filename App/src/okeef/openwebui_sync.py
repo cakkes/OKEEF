@@ -105,9 +105,10 @@ def resync_all(config: Config) -> list[Path]:
     ingested before Open WebUI was set up, and as a general maintenance re-sync (e.g.
     after Open WebUI's data dir was wiped/rebuilt).
 
-    Deliberately scoped to just the PARA buckets rather than rglob-ing the whole
-    bundle_root: .venv/.venv-webui (which live inside the bundle root) contain
-    thousands of unrelated .md files from installed Python packages.
+    Deliberately scoped to just the PARA buckets under bundle_root, rather than
+    rglob-ing the whole repo: .venv/.venv-webui (which live under App/, a sibling
+    of Knowledgebase/) contain thousands of unrelated .md files from installed
+    Python packages, and used to live inside bundle_root before the two were split.
 
     Signs in once and reuses the token across every file, rather than calling
     sync_file() per file (which would sign in per file) -- resync can process many

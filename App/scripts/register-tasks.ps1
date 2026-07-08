@@ -9,8 +9,8 @@ scripts\start-openwebui.ps1) -- it's only needed when actively chatting.
 
 $ErrorActionPreference = "Stop"
 
-$bundleRoot = (Resolve-Path "$PSScriptRoot\..").Path
-$pythonw = Join-Path $bundleRoot ".venv\Scripts\pythonw.exe"
+$appRoot = (Resolve-Path "$PSScriptRoot\..").Path
+$pythonw = Join-Path $appRoot ".venv\Scripts\pythonw.exe"
 
 if (-not (Test-Path $pythonw)) {
     throw "pythonw.exe not found at $pythonw -- run setup.ps1 first to create the ingestion pipeline venv."
@@ -20,7 +20,7 @@ $taskName = "OKEEF Watcher"
 
 Unregister-ScheduledTask -TaskName $taskName -Confirm:$false -ErrorAction SilentlyContinue
 
-$action = New-ScheduledTaskAction -Execute $pythonw -Argument "-m okeef.cli watch" -WorkingDirectory $bundleRoot
+$action = New-ScheduledTaskAction -Execute $pythonw -Argument "-m okeef.cli watch" -WorkingDirectory $appRoot
 $trigger = New-ScheduledTaskTrigger -AtLogOn
 $settings = New-ScheduledTaskSettingsSet `
     -RestartCount 3 `
@@ -31,7 +31,7 @@ $settings = New-ScheduledTaskSettingsSet `
 
 try {
     Register-ScheduledTask -TaskName $taskName -Action $action -Trigger $trigger -Settings $settings `
-        -Description "Watches $bundleRoot\_inbox and runs new files through the OKEEF ingestion pipeline." `
+        -Description "Watches $appRoot\_inbox and runs new files through the OKEEF ingestion pipeline." `
         -ErrorAction Stop | Out-Null
 } catch {
     # Register-ScheduledTask's CIM provider can write a non-terminating error that
@@ -49,4 +49,4 @@ if (-not (Get-ScheduledTask -TaskName $taskName -ErrorAction SilentlyContinue)) 
 Write-Output "Registered scheduled task '$taskName' (runs at logon, restarts up to 3x on failure, works unplugged/offline)."
 Write-Output "To start it right now without logging off: Start-ScheduledTask -TaskName '$taskName'"
 Write-Output "To check status: Get-ScheduledTask -TaskName '$taskName' | Get-ScheduledTaskInfo"
-Write-Output "Watcher logs: $bundleRoot\logs\watcher.log"
+Write-Output "Watcher logs: $appRoot\logs\watcher.log"

@@ -81,7 +81,7 @@ def _is_stable(path: Path) -> bool:
 def _quarantine(path: Path, config: Config, reason: str) -> None:
     if not path.exists():
         return
-    quarantine_dir = config.bundle_root / "_quarantine"
+    quarantine_dir = config.app_root / "_quarantine"
     quarantine_dir.mkdir(parents=True, exist_ok=True)
 
     target = quarantine_dir / path.name
@@ -100,11 +100,10 @@ def _process(path: Path, config: Config) -> None:
         return
     try:
         result = pipeline.process_file(path, config)
-        rel = result.relative_to(config.bundle_root)
         if config.auto_commit:
-            logger.info("Ingested %s -> %s", path.name, rel)
+            logger.info("Ingested %s -> %s", path.name, result.relative_to(config.bundle_root))
         else:
-            logger.info("Staged %s for review -> %s", path.name, rel)
+            logger.info("Staged %s for review -> %s", path.name, result.relative_to(config.app_root))
     except extract.ExtractionError as exc:
         _quarantine(path, config, str(exc))
     except Exception as exc:  # noqa: BLE001 -- any pipeline failure quarantines, never crashes the watcher
@@ -164,7 +163,7 @@ class InboxHandler(FileSystemEventHandler):
 
 
 def catch_up_scan(config: Config) -> None:
-    inbox = config.bundle_root / "_inbox"
+    inbox = config.app_root / "_inbox"
     for path in sorted(inbox.iterdir()):
         if not path.is_file() or _should_ignore(path):
             continue
@@ -187,7 +186,7 @@ def _wait_until_stable(path: Path, max_wait: float = MAX_WAIT) -> bool:
 
 
 def _configure_logging(config: Config) -> None:
-    logs_dir = config.bundle_root / "logs"
+    logs_dir = config.app_root / "logs"
     logs_dir.mkdir(parents=True, exist_ok=True)
     logging.basicConfig(
         level=logging.INFO,
@@ -203,7 +202,7 @@ def run(config: Config | None = None) -> None:
     config = config or load_config()
     _configure_logging(config)
 
-    inbox = config.bundle_root / "_inbox"
+    inbox = config.app_root / "_inbox"
     inbox.mkdir(parents=True, exist_ok=True)
 
     logger.info("Startup catch-up scan: %s", inbox)

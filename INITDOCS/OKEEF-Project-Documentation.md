@@ -90,29 +90,38 @@ ready to be filed.
 
 ```
 D:\OKEEF\
-├── index.md, log.md          bundle root -- hand-curated, only file allowed
-│                              okf_version frontmatter; never auto-touched
-│                              beyond log.md's dated entries
-├── Projects\ Areas\ Resources\ Archives\
+├── Knowledgebase\             bundle root -- the knowledge content itself
+│   ├── index.md, log.md       hand-curated, only file allowed okf_version
+│   │                          frontmatter; never auto-touched beyond log.md's
+│   │                          dated entries
+│   └── Projects\ Areas\ Resources\ Archives\
 │                              PARA sections; each subfolder's index.md
 │                              auto-regenerates between marker comments
-├── _inbox\                   watched folder; stays empty between runs
-├── _staging\                 review-mode drafts (AUTO_COMMIT=false), gitignored
-├── _quarantine\               failed extractions/classifications + reason.txt
-├── logs\                     watcher.log, openwebui-*.log (gitignored)
-├── src\okeef\                 the ingestion pipeline package (see §6)
-├── tests\                    pytest suite (17 tests as of this writing)
-├── config\config.yaml         shared, version-controlled config
-├── .env / .env.example        machine-specific config + credentials (gitignored)
-├── pyproject.toml             pipeline package definition + dependencies
-├── setup.ps1                  idempotent bootstrap script
-├── scripts\                   register-tasks.ps1, start-openwebui.ps1
-├── .venv\                     ingestion pipeline venv (gitignored)
-├── .venv-webui\                Open WebUI venv (gitignored)
-└── data\openwebui\             Open WebUI's own state: sqlite DB + vector
-                                store (gitignored; regenerable via `okeef resync`
-                                except chat history itself)
+├── App\                       the pipeline application + all runtime state
+│   ├── _inbox\                watched folder; stays empty between runs
+│   ├── _staging\               review-mode drafts (AUTO_COMMIT=false), gitignored
+│   ├── _quarantine\            failed extractions/classifications + reason.txt
+│   ├── logs\                  watcher.log, openwebui-*.log (gitignored)
+│   ├── src\okeef\              the ingestion pipeline package (see §6)
+│   ├── tests\                 pytest suite (19 tests as of this writing)
+│   ├── config\config.yaml      shared, version-controlled config
+│   ├── .env / .env.example     machine-specific config + credentials (gitignored)
+│   ├── pyproject.toml          pipeline package definition + dependencies
+│   ├── scripts\                register-tasks.ps1, start-openwebui.ps1,
+│   │                          Start-Service.bat, Scan-ParaFolders.bat
+│   ├── .venv\                  ingestion pipeline venv (gitignored)
+│   ├── .venv-webui\             Open WebUI venv (gitignored)
+│   └── data\openwebui\         Open WebUI's own state: sqlite DB + vector
+│                                store (gitignored; regenerable via `okeef resync`
+│                                except chat history itself)
+└── setup.ps1                  idempotent bootstrap script (stays at the repo
+                                root -- the one command a fresh clone runs first)
 ```
+
+`Knowledgebase\` and `App\` used to be flattened together at the repo root;
+they were split apart so PARA content isn't sitting alongside venvs/tests/
+runtime state. `config.py`'s `Config` has a matching three-way split
+(`repo_root`, `app_root`, `bundle_root`) -- see §10 for which modules use which.
 
 Two Python virtual environments are used deliberately: the pipeline's
 dependencies (pydantic, watchdog, PyMuPDF, ollama client, etc.) are small and
@@ -170,7 +179,7 @@ Design choices here:
 
 ## 6. The pipeline, module by module
 
-All in `src/okeef/`:
+All in `App/src/okeef/`:
 
 | Module | Responsibility |
 |---|---|
@@ -178,14 +187,15 @@ All in `src/okeef/`:
 | `models.py` | `Classification` — the pydantic schema shared between the classifier and every downstream consumer: `para_bucket`, `okf_type`, `title`, `description`, `summary`, `tags`, `folder_slug`, `confidence`. |
 | `extract.py` | Per-filetype text extraction: `.txt`/`.md` (UTF-8-sig, BOM-tolerant), `.pdf` (PyMuPDF), `.docx` (python-docx). Raises `ExtractionError` for empty/scanned/unsupported files, which the watcher turns into a quarantine. |
 | `classify.py` | One Ollama structured-output call (`qwen2.5:3b-instruct`) per file. System prompt spells out PARA bucket definitions, a suggested (non-exhaustive) `okf_type` vocabulary, and formatting rules; `_sanitize()` is a safety net for cases where the model doesn't follow formatting instructions exactly. |
-| `okf_writer.py` | `render()` turns extracted text + a `Classification` into an `OKFDoc` (frontmatter dict + body string). `write()` decides the final PARA path (with collision-safe uniquing) and writes the file(s). Kept as two functions specifically so review-mode can render without committing to a final location. |
+| `okf_writer.py` | `render()` turns extracted text + a `Classification` into an `OKFDoc` (frontmatter dict + body string). `write()` decides the final PARA path from `classification.para_bucket`/`folder_slug` (with collision-safe uniquing) and writes the file(s), deleting the source if it came from `_inbox`. `write_in_place()` is the `para_scan.py` variant: same collision-safe write, but the target folder is always `source_path.parent` (bucket/folder ignored) and the source is always deleted. Kept as separate functions from `render()` specifically so review-mode can render without committing to a final location. |
 | `bundle_index.py` | Regenerates each folder's `index.md` auto-index section (between `<!-- OKEEF:AUTO-INDEX:START/END -->` markers) after a write, walking up from the concept's folder to (but not including) the bundle root — the root `index.md` is hand-curated and deliberately never auto-touched. Also appends a dated entry to root `log.md`. |
 | `git_ops.py` | Thin `git add` + `git commit` wrapper, shelling out to `git.exe` (located via `shutil.which` or common install paths). |
 | `review_queue.py` | Implements the `AUTO_COMMIT=false` path: `stage_draft()` writes a rendered doc to `_staging/<id>/draft.md` (+ `proposal.json` + the original source file) instead of filing it; `load_staged()` reconstructs a `Classification` from a (possibly hand-edited) draft; `cleanup_staged()` removes the staging dir after approval. |
 | `watcher.py` | `watchdog`-based `Observer` on `_inbox/`, with per-path debounce + a size-stability/exclusive-open probe before treating a file as ready (handles slow Explorer copies), a startup catch-up scan (handles gaps while the watcher wasn't running), and quarantine-on-failure. |
 | `pipeline.py` | The orchestrator: `process_file()`, `approve()`, and the shared `finalize()` tail (index update, commit, Open WebUI sync). |
+| `para_scan.py` | `find_candidates()` walks the PARA buckets for files never run through the pipeline (supported extension, not an existing `.original.*` attachment, `.md` files missing the `type` frontmatter key); `scan()` runs each through extract/classify/render/`write_in_place()`/`finalize()`, always writing+committing immediately (no staging). Placement is never reclassified — see §4/§6's `okf_writer.py` entry. |
 | `openwebui_sync.py` | Pushes a concept doc into Open WebUI's Knowledge collection: sign in (session JWT) -> upload file -> poll processing status -> attach to collection. `resync_all()` bulk-syncs every concept doc under the PARA folders. |
-| `cli.py` | The `okeef` command group: `process-file`, `watch`, `list-staged`, `approve`, `resync`. |
+| `cli.py` | The `okeef` command group: `process-file`, `watch`, `scan-para`, `list-staged`, `approve`, `resync`. |
 
 ## 7. Review mode (`AUTO_COMMIT=false`)
 
@@ -249,15 +259,19 @@ time — future changes to this system should account for them.
 ### 9.1 `resync_all()` must not walk the whole bundle root
 
 **Bug found**: an early version of `resync_all()` did
-`bundle_root.rglob("*.md")`. Since `.venv/` and `.venv-webui/` live *inside*
-`D:\OKEEF`, this recursed into thousands of unrelated markdown files from
-installed Python packages (`LICENSE.md`, `pytest_cache/README.md`, etc.),
-which got embedded into the Knowledge collection and surfaced in chat
+`bundle_root.rglob("*.md")`. Back when `Knowledgebase\` and `App\` were still
+flattened together at the repo root, `.venv/` and `.venv-webui/` lived
+*inside* `bundle_root`, so this recursed into thousands of unrelated markdown
+files from installed Python packages (`LICENSE.md`, `pytest_cache/README.md`,
+etc.), which got embedded into the Knowledge collection and surfaced in chat
 retrieval results.
 
 **Fix**: `resync_all()` iterates only `config.para_buckets` (Projects/Areas/
-Resources/Archives), never the bundle root. Regression test:
-`tests/test_openwebui_sync.py::test_resync_all_does_not_walk_venv_or_bundle_root`.
+Resources/Archives), never the bundle root. The later `App`/`Knowledgebase`
+split (§4) makes the venvs' presence inside `bundle_root` structurally
+impossible now, but the scoped iteration stays as defense in depth. Regression
+test:
+`App/tests/test_openwebui_sync.py::test_resync_all_does_not_walk_venv_or_bundle_root`.
 
 ### 9.2 Open WebUI API keys don't reliably survive a restart
 
@@ -356,48 +370,61 @@ be run by the user directly in their own interactive shell.
 | `chunk_size` / `chunk_overlap` | `800` / `150` | Also set in Open WebUI's retrieval config during setup; kept here for reference/consistency. |
 | `openwebui.base_url` | `http://localhost:8080` | |
 
-### `.env` (machine-specific, gitignored — see `.env.example`)
+### `.env` (machine-specific, gitignored — see `.env.example`), lives in `App\`
 
 | Key | Purpose |
 |---|---|
 | `AUTO_COMMIT` | Override `config.yaml`'s value without editing it. |
-| `OKEEF_ROOT` | Override the bundle root path (rarely needed). |
+| `OKEEF_APP_ROOT` | Override the app root path (rarely needed); `repo_root`/`bundle_root` are derived from it (see §4). |
 | `WEBUI_ADMIN_EMAIL` / `WEBUI_ADMIN_PASSWORD` / `WEBUI_ADMIN_NAME` | Headlessly bootstraps the Open WebUI admin account on first startup **and** is reused indefinitely by `openwebui_sync.py` to authenticate (see §9.2) — keep these set permanently, not just for first-run. |
 | `OPENWEBUI_KNOWLEDGE_ID` | The Knowledge collection UUID `openwebui_sync.py` pushes into. Per-machine (each Open WebUI instance generates its own on creation). |
 
+`config.py`'s `Config` splits what used to be a single `bundle_root` into
+three fields: `repo_root` (git top level, `D:\OKEEF`, used only by
+`git_ops.commit_files()`), `app_root` (`App\`, used for `_inbox`/`_staging`/
+`_quarantine`/`logs`), and `bundle_root` (`Knowledgebase\`, used for
+everything PARA-content-related — index/log updates, `okf_writer.write()`'s
+target dir, `resync_all()`'s bucket iteration).
+
 ## 11. CLI reference
 
-All commands run inside the `.venv` (`.venv\Scripts\okeef.exe ...`, or
+All commands run inside `App\.venv` (`App\.venv\Scripts\okeef.exe ...`, or
 `okeef ...` if that venv's `Scripts\` is on `PATH`):
 
 | Command | Purpose |
 |---|---|
 | `okeef process-file <path>` | Run one file through the full pipeline manually (extract -> classify -> file/stage -> commit). |
-| `okeef watch` | Run the startup catch-up scan, then watch `_inbox\` continuously (foreground; this is what the Scheduled Task runs headlessly via `pythonw.exe -m okeef.cli watch`). |
+| `okeef watch` | Run the startup catch-up scan, then watch `App\_inbox\` continuously (foreground; this is what the Scheduled Task runs headlessly via `pythonw.exe -m okeef.cli watch`, and what `App\scripts\Start-Service.bat` runs on demand). |
+| `okeef scan-para` | Scan the PARA folders for files added by hand (bypassing `_inbox`) and OKF-ify each one in place — bucket/folder exactly as filed by hand, never reclassified. Always writes and commits immediately; doesn't participate in the `AUTO_COMMIT=false` staging flow. Also runnable via `App\scripts\Scan-ParaFolders.bat`. |
 | `okeef list-staged` | List drafts awaiting review (`AUTO_COMMIT=false` mode only). |
 | `okeef approve <id> [--approved-by NAME]` | File and commit a staged draft. |
 | `okeef resync` | Bulk-sync every concept doc under the PARA folders into Open WebUI's Knowledge collection. See §8/§9.5 for when this is and isn't safe to run. |
 
 ## 12. Testing
 
-`pytest` suite in `tests/`, run via `.venv\Scripts\python.exe -m pytest tests -v`.
+`pytest` suite in `App\tests\`, run via
+`App\.venv\Scripts\python.exe -m pytest App\tests -v`.
 
 - `test_extract.py` — BOM-stripping regression test.
 - `test_pipeline.py` — extract/write/index/commit behavior, using a real
   (throwaway, `tmp_path`-isolated) git repo per test.
 - `test_review_queue.py` — stage/list/approve flow, including that a
   hand-edited title/bucket in a staged draft is honored on approval.
+- `test_para_scan.py` — `find_candidates()` filtering (skips already-OKF'd
+  `.md`, `.original.*` attachment siblings) and `scan()` writing in place
+  without reclassifying the bucket.
 - `test_classify.py` — **integration tests against the real Ollama server**;
   auto-skipped if `localhost:11434` isn't reachable, rather than failing.
 - `test_openwebui_sync.py` — mocked-HTTP unit tests for the sign-in/upload/
   process/attach flow, plus the `resync_all()` scoping regression test
   from §9.1.
 
-`tests/conftest.py` holds shared fixtures: an autouse `stub_classification`
-fixture that replaces the real Ollama call with the original deterministic
-stub logic (so most tests stay fast and don't need Ollama running), and
-`bundle_root`/`config` fixtures that build a temp OKF/PARA skeleton with a
-real git repo.
+`App/tests/conftest.py` holds shared fixtures: an autouse
+`stub_classification` fixture that replaces the real Ollama call with the
+original deterministic stub logic (so most tests stay fast and don't need
+Ollama running), and `repo_root`/`bundle_root`/`app_root`/`config` fixtures
+that build a temp repo mirroring the real `repo_root`/`Knowledgebase`/`App`
+split, with a real git repo at `repo_root`.
 
 ## 13. Replicating to another machine
 

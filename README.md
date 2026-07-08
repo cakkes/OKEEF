@@ -5,7 +5,7 @@ A personal, local-first knowledgebase ("second brain") built on Google's
 (OKF v0.1) and organized with the [PARA method](https://fortelabs.com/blog/para/)
 (Projects / Areas / Resources / Archives).
 
-Drop files into `_inbox\`; a local pipeline (Ollama + a small classifier model)
+Drop files into `App\_inbox\`; a local pipeline (Ollama + a small classifier model)
 extracts, classifies, and files them as conformant OKF markdown documents, then
 commits the result to git. The whole bundle is queryable through
 [Open WebUI](https://openwebui.com), a local chat UI with retrieval-augmented
@@ -61,44 +61,56 @@ Administrator account under UAC. If `setup.ps1` reports this, run the one
 remaining step yourself in a normal PowerShell window:
 
 ```powershell
-.\scripts\register-tasks.ps1
+.\App\scripts\register-tasks.ps1
 ```
 
 ## Day-to-day use
 
 - **Add something to your knowledgebase**: drop a `.txt`, `.md`, `.pdf`, or
-  `.docx` file into `_inbox\`. If the watcher is running (it auto-starts at
+  `.docx` file into `App\_inbox\`. If the watcher is running (it auto-starts at
   login once the Scheduled Task is registered), it's picked up within a couple
   of seconds, classified, filed into the right PARA folder as an OKF document,
   and committed to git.
-- **Chat with your knowledgebase**: run `.\scripts\start-openwebui.ps1`, then
+- **Start the ingestion service on demand**: double-click
+  `App\scripts\Start-Service.bat` -- runs the same catch-up-scan + watch +
+  commit + sync as the scheduled task, with no console window left open.
+  Doesn't touch Open WebUI.
+- **File something you added by hand**: if you drop a raw file directly into
+  `Knowledgebase\Projects\`, `Areas\`, `Resources\`, or `Archives\` (instead of
+  `App\_inbox\`), it bypasses the pipeline entirely until you run the PARA
+  scanner: double-click `App\scripts\Scan-ParaFolders.bat` (or `okeef
+  scan-para`). It finds every such file, OKF-ifies it, and commits it --
+  **in the exact folder you put it in**, never reclassified into a different
+  bucket.
+- **Chat with your knowledgebase**: run `.\App\scripts\start-openwebui.ps1`, then
   open <http://localhost:8080>. Not auto-started at login -- it's a manual
   run/shortcut since it's only needed while actively chatting.
 - **Process one file manually** (without the watcher): `okeef process-file <path>`
 - **Pause ingestion**: stop the "OKEEF Watcher" scheduled task
   (`Stop-ScheduledTask -TaskName "OKEEF Watcher"`), or just don't drop files.
-- **Toggle review-before-commit mode**: set `AUTO_COMMIT=false` in `.env`. New
-  drops are staged under `_staging\<id>\` (a `draft.md` you can hand-edit --
+- **Toggle review-before-commit mode**: set `AUTO_COMMIT=false` in `App\.env`. New
+  drops are staged under `App\_staging\<id>\` (a `draft.md` you can hand-edit --
   including the proposed PARA bucket/folder, via the `_para_bucket`/
   `_folder_slug` frontmatter keys -- plus a `proposal.json` for reference)
   instead of being filed immediately. Review with `okeef list-staged`, then
   `okeef approve <id>` to file and commit it (add `--approved-by "Your Name"`
-  to record it in the commit trailer).
+  to record it in the commit trailer). The PARA scanner always files and
+  commits immediately -- it doesn't use this review flow.
 - **Reprocess a quarantined file**: failed extractions/classifications land in
-  `_quarantine\` with a `<name>.reason.txt` explaining why. Fix the underlying
-  issue (or the file itself) and drop it back into `_inbox\`.
+  `App\_quarantine\` with a `<name>.reason.txt` explaining why. Fix the
+  underlying issue (or the file itself) and drop it back into `App\_inbox\`.
 - **Re-sync Open WebUI's Knowledge collection**: `okeef resync` -- walks every
   concept doc under the PARA folders and re-uploads it. Useful after wiping
-  `data\openwebui\` or if a sync failed partway (sync failures don't break
+  `App\data\openwebui\` or if a sync failed partway (sync failures don't break
   ingestion; the git commit is the source of truth, and `resync` catches up).
 
 ## Known issues
 
 - **"Failed to attach file... 400: We could not find what you're looking
-  for"** on `okeef resync` or a sync warning in `logs\watcher.log`: the
+  for"** on `okeef resync` or a sync warning in `App\logs\watcher.log`: the
   installed Open WebUI version has been observed to make an existing Knowledge
   collection unreachable via its API after several rapid restarts, even though
-  the row is still present and intact in `data\openwebui\webui.db` (confirmed
+  the row is still present and intact in `App\data\openwebui\webui.db` (confirmed
   by inspecting the SQLite file directly). The fix is to create a fresh
   collection and point `OPENWEBUI_KNOWLEDGE_ID` at it:
   ```powershell
@@ -115,49 +127,56 @@ remaining step yourself in a normal PowerShell window:
 
 ```
 D:\OKEEF\
-├── index.md, log.md              bundle root (hand-curated; never auto-touched
-│                                  beyond log.md's dated entries)
-├── Projects\ Areas\ Resources\ Archives\
+├── Knowledgebase\                 the knowledge content itself (bundle root)
+│   ├── index.md, log.md           hand-curated; never auto-touched beyond
+│   │                              log.md's dated entries
+│   └── Projects\ Areas\ Resources\ Archives\
 │                                  PARA sections; each subfolder's index.md is
 │                                  auto-generated between marker comments
-├── _inbox\                       drop files here
-├── _staging\                     review-mode drafts (AUTO_COMMIT=false)
-├── _quarantine\                  failed extractions/classifications
-├── src\okeef\                    the ingestion pipeline (see module docstrings)
-├── config\config.yaml            shared config (models, chunk size, PARA buckets)
-├── .env                          machine-specific: AUTO_COMMIT override,
-│                                  Open WebUI admin/API credentials, knowledge_id
-├── setup.ps1, scripts\           bootstrap + service management
-└── data\openwebui\               Open WebUI's own state (regenerable via resync,
-                                   except chat history itself)
+├── App\                          the pipeline application + all runtime state
+│   ├── src\okeef\                 the ingestion pipeline (see module docstrings)
+│   ├── scripts\                   register-tasks.ps1, start-openwebui.ps1,
+│   │                              Start-Service.bat, Scan-ParaFolders.bat
+│   ├── config\config.yaml        shared config (models, chunk size, PARA buckets)
+│   ├── .env                      machine-specific: AUTO_COMMIT override,
+│   │                              Open WebUI admin/API credentials, knowledge_id
+│   ├── .venv\, .venv-webui\      the two venvs (pipeline; Open WebUI)
+│   ├── _inbox\                   drop files here
+│   ├── _staging\                 review-mode drafts (AUTO_COMMIT=false)
+│   ├── _quarantine\               failed extractions/classifications
+│   └── data\openwebui\           Open WebUI's own state (regenerable via
+│                                  resync, except chat history itself)
+├── INITDOCS\, README.md, CLAUDE.md, LICENSE
+└── setup.ps1                     bootstrap entry point (run this first)
 ```
 
-Each `src/okeef/*.py` module has a docstring explaining its role; `pipeline.py`
-is the best starting point -- it's the orchestrator tying extraction,
-classification, writing, indexing, committing, and syncing together.
+Each `App/src/okeef/*.py` module has a docstring explaining its role;
+`pipeline.py` is the best starting point -- it's the orchestrator tying
+extraction, classification, writing, indexing, committing, and syncing
+together.
 
 ## Smoke test
 
 After setup, confirm everything works end to end:
 
 ```powershell
-"Testing OKEEF." | Out-File _inbox\smoke-test.txt -Encoding utf8
-# wait a few seconds for the watcher (or run: okeef process-file _inbox\smoke-test.txt)
+"Testing OKEEF." | Out-File App\_inbox\smoke-test.txt -Encoding utf8
+# wait a few seconds for the watcher (or run: okeef process-file App\_inbox\smoke-test.txt)
 git log --oneline -1        # should show a new "ingest(...)" commit
 ```
 
-Then open <http://localhost:8080> (after running `scripts\start-openwebui.ps1`)
+Then open <http://localhost:8080> (after running `App\scripts\start-openwebui.ps1`)
 and ask a question about the file you just added -- the answer should be
 grounded in it and cite the source.
 
 ## Cross-platform notes
 
-The pipeline code (`src/okeef/`) is pure Python and portable as-is. What's
+The pipeline code (`App/src/okeef/`) is pure Python and portable as-is. What's
 Windows-specific:
 
 - `pythonw.exe` (no-console launch) -- macOS/Linux don't need an equivalent;
   just run the command directly or via a `systemd`/`launchd` unit.
-- Task Scheduler (`scripts\register-tasks.ps1`) -- replace with a `launchd`
+- Task Scheduler (`App\scripts\register-tasks.ps1`) -- replace with a `launchd`
   `.plist` (macOS, `RunAtLoad`) or a `systemd --user` service / cron `@reboot`
   entry (Linux) running `python -m okeef.cli watch`.
 - `winget` in `setup.ps1` -- swap for `brew` (macOS) or your distro's package
