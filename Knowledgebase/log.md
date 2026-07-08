@@ -1,6 +1,7 @@
 # Log
 
 ## 2026-07-08
+* **Creation**: [Managerial Economics Grades Charter](/Projects/managerial-economics-grades/managerial-economics-grades-charter.md) (Projects/project-charter)
 * **Creation**: [Review Mode Test Note](/Resources/review-mode-notes/review-mode-test-note.md) (Resources/note)
 * **Creation**: [Service Launcher Test](/Projects/service-launcher-tests/service-launcher-test.md) (Projects/log-entry)
 * **Creation**: [Manual Note](/Areas/hand-filed-test/manual-note.md) (Areas/note)
