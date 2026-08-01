@@ -1,0 +1,28 @@
+name: Tests
+
+on:
+  push:
+
+jobs:
+  pytest:
+    # git_ops.py shells out to git.exe and the watcher relies on Windows-only APIs
+    # (ReadDirectoryChangesW via watchdog, ".venv\Scripts\..." layout) -- windows-latest
+    # matches how this pipeline actually runs, unlike ubuntu/macos runners.
+    runs-on: windows-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: "pip"
+          cache-dependency-path: App/pyproject.toml
+
+      - name: Install pipeline package + dev deps
+        working-directory: App
+        run: python -m pip install -e ".[dev]"
+
+      - name: Run pytest
+        working-directory: App
+        run: python -m pytest tests -v
