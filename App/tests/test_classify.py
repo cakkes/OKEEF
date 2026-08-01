@@ -23,6 +23,15 @@ def _ollama_reachable(host: str) -> bool:
         return False
 
 
+@pytest.fixture(autouse=True)
+def stub_classification():
+    """Overrides conftest.py's autouse stub with a no-op: this file's entire point is
+    to exercise the real classify.classify() against Ollama, so the stub that every
+    other test file relies on must not apply here.
+    """
+    yield
+
+
 @pytest.fixture
 def config():
     return load_config()
