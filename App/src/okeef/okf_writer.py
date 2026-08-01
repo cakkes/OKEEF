@@ -71,11 +71,13 @@ def write_in_place(doc: OKFDoc, source_path: Path) -> tuple[Path, Path | None]:
     """Like write(), but for files a human already filed by hand directly under a
     PARA folder (see para_scan.py): the classifier's para_bucket/folder_slug are
     ignored for placement -- the doc is written into source_path's own folder,
-    respecting wherever the human put it -- and the original raw file is always
-    replaced (there's no _inbox concept here, so the deletion isn't conditional).
+    respecting wherever the human put it. The original raw file is replaced --
+    unless the concept doc ended up written to that exact same path (a .md source
+    whose classified title happens to slugify back to its own filename), in which
+    case it was already overwritten in place and there's nothing left to unlink.
     """
     concept_path, attachment_path = _write_at(doc, source_path, source_path.parent)
-    if source_path.exists():
+    if source_path != concept_path and source_path.exists():
         source_path.unlink()
     return concept_path, attachment_path
 
@@ -83,7 +85,12 @@ def write_in_place(doc: OKFDoc, source_path: Path) -> tuple[Path, Path | None]:
 def _write_at(doc: OKFDoc, source_path: Path, target_dir: Path) -> tuple[Path, Path | None]:
     target_dir.mkdir(parents=True, exist_ok=True)
 
-    concept_path = _unique_path(target_dir, slugify(doc.classification.title), ".md")
+    # When writing in place (target_dir is source_path's own folder), the source file
+    # itself is still on disk at this point -- ignore it as a "collision" in the
+    # uniqueness check, or a classified title that slugifies back to the source's own
+    # filename would falsely bump to "-2" instead of just overwriting it in place.
+    ignore = source_path if source_path.parent == target_dir else None
+    concept_path = _unique_path(target_dir, slugify(doc.classification.title), ".md", ignore=ignore)
 
     attachment_path = None
     suffix = source_path.suffix.lower()
@@ -103,10 +110,10 @@ def _write_at(doc: OKFDoc, source_path: Path, target_dir: Path) -> tuple[Path, P
     return concept_path, attachment_path
 
 
-def _unique_path(target_dir: Path, base_slug: str, suffix: str) -> Path:
+def _unique_path(target_dir: Path, base_slug: str, suffix: str, ignore: Path | None = None) -> Path:
     candidate = target_dir / f"{base_slug}{suffix}"
     n = 2
-    while candidate.exists():
+    while candidate.exists() and candidate != ignore:
         candidate = target_dir / f"{base_slug}-{n}{suffix}"
         n += 1
     return candidate

@@ -14,7 +14,19 @@ $envPath = Join-Path $appRoot ".env"
 if (Test-Path $envPath) {
     foreach ($line in Get-Content $envPath) {
         if ($line -match '^([^#][^=]*)=(.*)$') {
-            [System.Environment]::SetEnvironmentVariable($matches[1].Trim(), $matches[2], "Process")
+            $value = $matches[2].Trim()
+            # Strip one matching pair of wrapping quotes, mirroring python-dotenv's
+            # behavior (used by config.py) -- otherwise a quoted value here (e.g. a
+            # password with special characters) would keep its literal quote
+            # characters while the pipeline's own .env loader strips them, and the
+            # two would end up disagreeing on credentials.
+            if ($value.Length -ge 2 -and (
+                    ($value.StartsWith('"') -and $value.EndsWith('"')) -or
+                    ($value.StartsWith("'") -and $value.EndsWith("'"))
+                )) {
+                $value = $value.Substring(1, $value.Length - 2)
+            }
+            [System.Environment]::SetEnvironmentVariable($matches[1].Trim(), $value, "Process")
         }
     }
 }

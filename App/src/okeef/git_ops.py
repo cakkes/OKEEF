@@ -37,6 +37,11 @@ def commit_files(repo_root: Path, paths: list[Path], message: str) -> None:
     """Stages the given paths and commits them. No-ops (does not raise) if, after
     staging, there's nothing new to commit — this can legitimately happen on a
     reindex where content didn't actually change.
+
+    Both the "anything to commit" check and the commit itself are scoped to `paths`
+    via a pathspec, not the whole index -- otherwise any unrelated content some other
+    process (or a previous interrupted run) left staged in this repo would get
+    silently folded into this commit too.
     """
     git = _git_executable()
     rel_paths = [str(p.relative_to(repo_root)) for p in paths]
@@ -50,13 +55,13 @@ def commit_files(repo_root: Path, paths: list[Path], message: str) -> None:
         raise GitError(f"git add failed: {add_result.stderr.strip()}")
 
     diff_result = subprocess.run(
-        [git, "-C", str(repo_root), "diff", "--cached", "--quiet"]
+        [git, "-C", str(repo_root), "diff", "--cached", "--quiet", "--", *rel_paths]
     )
     if diff_result.returncode == 0:
-        return  # nothing staged, nothing to commit
+        return  # nothing staged for these paths, nothing to commit
 
     commit_result = subprocess.run(
-        [git, "-C", str(repo_root), "commit", "-m", message],
+        [git, "-C", str(repo_root), "commit", "-m", message, "--", *rel_paths],
         capture_output=True,
         text=True,
     )

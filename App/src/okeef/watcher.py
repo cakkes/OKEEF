@@ -115,6 +115,7 @@ class InboxHandler(FileSystemEventHandler):
     def __init__(self, config: Config):
         self.config = config
         self._pending: dict[Path, threading.Timer] = {}
+        self._processing: set[Path] = set()
         self._lock = threading.Lock()
 
     def on_created(self, event):
@@ -147,6 +148,14 @@ class InboxHandler(FileSystemEventHandler):
     def _check_stable(self, path: Path, waited: float) -> None:
         with self._lock:
             self._pending.pop(path, None)
+            # A stray event (antivirus, indexing, Explorer) can re-schedule this path
+            # while an earlier debounce cycle's _process() is still running -- that
+            # run hasn't deleted/moved the file yet, so without this guard a second
+            # concurrent _process() would re-run the whole pipeline on it and file it
+            # twice. Just drop the duplicate; the in-flight run will still see any
+            # newer content once it (re-)reads the file.
+            if path in self._processing:
+                return
 
         if not path.exists() or _should_ignore(path):
             return
@@ -159,7 +168,15 @@ class InboxHandler(FileSystemEventHandler):
             self._schedule(path, waited)
             return
 
-        _process(path, self.config)
+        with self._lock:
+            if path in self._processing:
+                return
+            self._processing.add(path)
+        try:
+            _process(path, self.config)
+        finally:
+            with self._lock:
+                self._processing.discard(path)
 
 
 def catch_up_scan(config: Config) -> None:

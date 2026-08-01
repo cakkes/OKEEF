@@ -53,3 +53,28 @@ def test_scan_writes_in_place_and_commits(repo_root: Path, bundle_root: Path, co
         [git, "-C", str(repo_root), "log", "--oneline"], capture_output=True, text=True, check=True
     )
     assert "ingest(areas):" in log.stdout
+
+
+def test_scan_converts_md_source_in_place_without_spurious_rename(
+    bundle_root: Path, config: Config
+) -> None:
+    # Regression test: a hand-filed .md file whose classified title slugifies back
+    # to its own filename (very common -- the stub classifier titles "project-plan"
+    # as "Project Plan", which slugifies right back to "project-plan") used to look
+    # like a filename collision to _unique_path(), since the original file was still
+    # on disk when the uniqueness check ran. That falsely bumped the output to
+    # "project-plan-2.md" and deleted the real "project-plan.md".
+    area_dir = bundle_root / "Areas" / "hand-filed"
+    area_dir.mkdir(parents=True)
+    raw = area_dir / "project-plan.md"
+    raw.write_text("Some hand-written project plan content.", encoding="utf-8")
+
+    written = para_scan.scan(config)
+
+    assert len(written) == 1
+    concept_path = written[0]
+    assert concept_path == raw  # converted in place, not renamed to project-plan-2.md
+    assert not (area_dir / "project-plan-2.md").exists()
+
+    post = frontmatter.load(concept_path)
+    assert post.metadata["type"] == "note"
